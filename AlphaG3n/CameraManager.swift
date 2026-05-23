@@ -36,6 +36,17 @@ nonisolated final class CameraManager:
     /// The camera currently feeding the session.
     @MainActor @Published private(set) var selectedCamera: AVCaptureDevice?
 
+    /// What the UI should show: live camera, an in-flight OCR job, the
+    /// finished overlay, or an error from the last attempt.
+    @MainActor @Published private(set) var captureState: CaptureState = .idle
+
+    enum CaptureState: @unchecked Sendable {
+        case idle
+        case processing
+        case result(UIImage)
+        case failed(String)
+    }
+
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
 
@@ -68,10 +79,20 @@ nonisolated final class CameraManager:
     /// Runs on a background thread — dispatch to main before touching any UI.
     private func didCapturePhoto(_ pixelBuffer: CVPixelBuffer) {
         guard let imageData = jpegData(from: pixelBuffer) else {
-            print("PaddleOCR: failed to encode the captured photo")
+            Task { @MainActor in
+                self.captureState = .failed("Failed to encode the captured photo.")
+            }
             return
         }
+        Task { @MainActor in self.captureState = .processing }
         Task { await runOCR(on: imageData) }
+    }
+
+    /// Reset back to live camera. Call from the UI when the user dismisses
+    /// the result or error overlay.
+    @MainActor
+    func resetCaptureState() {
+        captureState = .idle
     }
 
     // MARK: - Lifecycle
@@ -204,10 +225,12 @@ nonisolated final class CameraManager:
 
     // MARK: - PaddleOCR upload
 
-    /// Uploads the captured photo to PaddleOCR and prints the extracted output.
+    /// Uploads the captured photo to PaddleOCR, builds a `VirtualDocument`
+    /// from the first returned page, renders the color-coded overlay, and
+    /// publishes it via `captureState` for the UI.
     private func runOCR(on imageData: Data) async {
         guard PaddleOCRClient.isAPIKeyConfigured else {
-            print("PaddleOCR: set the API key in PaddleOCRClient+APIKey.swift before capturing a photo.")
+            await publishFailure("Set the PaddleOCR API key in secrets.xcconfig before capturing.")
             return
         }
 
@@ -220,24 +243,40 @@ nonisolated final class CameraManager:
             let pages = try await paddleClient.process(
                 fileURL: imageURL,
                 optionalPayload: OptionalPayload(useDocOrientationClassify: true),
-                outputDirectory: outputDirectory,
-                progress: { event in print("PaddleOCR progress: \(event)") }
+                outputDirectory: outputDirectory
             )
 
-            print("PaddleOCR: extracted \(pages.count) page(s)")
-            for page in pages {
-                print("----- Page \(page.pageIndex) -----")
-                print(page.markdown)
-                if !page.inlineImages.isEmpty {
-                    print("Inline images: \(page.inlineImages)")
-                }
-                if !page.outputImages.isEmpty {
-                    print("Output images: \(page.outputImages)")
-                }
+            guard let page = pages.first else {
+                await publishFailure("PaddleOCR returned no pages.")
+                return
             }
+            guard let pruned = page.prunedResult else {
+                await publishFailure("PaddleOCR response was missing layout data.")
+                return
+            }
+
+            // Prefer the deskewed/oriented preprocessed image (its coordinate
+            // space matches the bboxes). Fall back to the original capture.
+            let sourceImage: UIImage = {
+                if let url = page.preprocessedImageURL,
+                   let data = try? Data(contentsOf: url),
+                   let img = UIImage(data: data) {
+                    return img
+                }
+                return UIImage(data: imageData) ?? UIImage()
+            }()
+
+            let document = VirtualDocument.make(from: pruned, image: sourceImage)
+            let overlay = document.render()
+            await MainActor.run { self.captureState = .result(overlay) }
         } catch {
-            print("PaddleOCR error: \(error)")
+            await publishFailure("PaddleOCR error: \(error)")
         }
+    }
+
+    @MainActor
+    private func publishFailure(_ message: String) {
+        captureState = .failed(message)
     }
 
     /// Encodes a camera pixel buffer as JPEG data for upload.

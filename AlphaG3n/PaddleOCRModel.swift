@@ -38,6 +38,13 @@ public struct ExtractedPage: Sendable {
     public let markdown: String
     public let inlineImages: [String: URL]
     public let outputImages: [String: URL]
+    /// Rich layout data (bboxes, labels, polygons) used to build a `VirtualDocument`.
+    /// `nil` only if the API omitted it for this page.
+    public let prunedResult: VirtualDocument.PrunedResult?
+    /// Local path to the post-processed / deskewed source image whose
+    /// coordinate space matches `prunedResult` bboxes. `nil` if the API
+    /// didn't return one (e.g. all preprocessing flags off).
+    public let preprocessedImageURL: URL?
 }
 
 public enum PaddleOCRError: Error, CustomStringConvertible {
@@ -111,9 +118,11 @@ nonisolated private struct LayoutResultLine: Decodable {
 
 nonisolated private struct LayoutResult: Decodable {
     let layoutParsingResults: [LayoutParsingResult]
+    let preprocessedImages: [String]?
 }
 
 nonisolated private struct LayoutParsingResult: Decodable {
+    let prunedResult: VirtualDocument.PrunedResult?
     let markdown: MarkdownPayload
     let outputImages: [String: String]?
 }
@@ -377,10 +386,15 @@ public actor PaddleOCRClient {
         for line in lines {
             guard let data = line.data(using: .utf8) else { continue }
             let parsed = try decoder.decode(LayoutResultLine.self, from: data)
-            for parsing in parsed.result.layoutParsingResults {
+            let preprocessed = parsed.result.preprocessedImages
+            for (localIndex, parsing) in parsed.result.layoutParsingResults.enumerated() {
+                let preprocessedURLString: String? =
+                    (preprocessed != nil && localIndex < preprocessed!.count)
+                    ? preprocessed![localIndex] : nil
                 let page = try await writePage(
                     pageIndex: pageIndex,
                     parsing: parsing,
+                    preprocessedImageURLString: preprocessedURLString,
                     outputDirectory: outputDirectory
                 )
                 pages.append(page)
@@ -394,6 +408,7 @@ public actor PaddleOCRClient {
     private func writePage(
         pageIndex: Int,
         parsing: LayoutParsingResult,
+        preprocessedImageURLString: String?,
         outputDirectory: URL
     ) async throws -> ExtractedPage {
         let mdURL = outputDirectory.appendingPathComponent("doc_\(pageIndex).md")
@@ -409,14 +424,29 @@ public actor PaddleOCRClient {
             return (name, remote, outputDirectory.appendingPathComponent("\(name)_\(pageIndex).jpg"))
         }
 
+        let preprocessedSpecs: [(String, URL, URL)] = {
+            guard
+                let urlString = preprocessedImageURLString,
+                let remote = URL(string: urlString)
+            else { return [] }
+            return [(
+                "preprocessed",
+                remote,
+                outputDirectory.appendingPathComponent("preprocessed_\(pageIndex).jpg")
+            )]
+        }()
+
         let inlineResults = try await downloadConcurrently(specs: inlineSpecs)
         let outputResults = try await downloadConcurrently(specs: outputSpecs)
+        let preprocessedResults = try await downloadConcurrently(specs: preprocessedSpecs)
 
         return ExtractedPage(
             pageIndex: pageIndex,
             markdown: parsing.markdown.text,
             inlineImages: inlineResults,
-            outputImages: outputResults
+            outputImages: outputResults,
+            prunedResult: parsing.prunedResult,
+            preprocessedImageURL: preprocessedResults["preprocessed"]
         )
     }
 
