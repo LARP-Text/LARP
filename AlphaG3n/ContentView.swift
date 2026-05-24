@@ -13,7 +13,11 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            CameraPreview(session: camera.session, detections: camera.liveDetections)
+            CameraPreview(
+                session: camera.session,
+                detections: camera.liveDetections,
+                rotationAngle: camera.previewRotationAngle
+            )
                 .ignoresSafeArea()
 
             VStack {
@@ -54,6 +58,14 @@ struct ContentView: View {
                 Text("Reading document…")
                     .font(.headline)
                     .foregroundStyle(.white)
+            }
+
+            TopActionBar(
+                title: "Cancel",
+                tint: .red,
+                accessibilityHint: "Stops reading the document and returns to the camera"
+            ) {
+                camera.cancelProcessing()
             }
         }
         .transition(.opacity)
@@ -111,20 +123,11 @@ private struct ResultOverlay: View {
                 .scaledToFit()
                 .ignoresSafeArea(edges: .bottom)
 
-            VStack {
-                HStack {
-                    Spacer()
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(12)
-                            .background(.black.opacity(0.55), in: Circle())
-                    }
-                }
-                .padding()
-                Spacer()
-            }
+            TopActionBar(
+                title: "Done",
+                accessibilityHint: "Closes the scanned document and returns to the camera",
+                action: onDismiss
+            )
         }
         .transition(.opacity)
     }
@@ -146,12 +149,56 @@ private struct FailureOverlay: View {
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 32)
-                Button("Dismiss", action: onDismiss)
-                    .buttonStyle(.borderedProminent)
             }
             .padding()
+
+            TopActionBar(
+                title: "Dismiss",
+                tint: .red,
+                accessibilityHint: "Closes this message and returns to the camera",
+                action: onDismiss
+            )
         }
         .transition(.opacity)
+    }
+}
+
+// MARK: - Accessible top action bar
+
+/// A full-width, edge-to-edge button pinned to the top of an overlay. Sized as
+/// a large tap target and wired for VoiceOver so a blind user can reliably find
+/// and trigger it without aiming. Shared by the processing, result, and failure
+/// overlays so the primary action sits in the same place on every screen.
+private struct TopActionBar: View {
+    let title: String
+    /// Leading SF Symbol. Defaults to the familiar close glyph.
+    var systemImage: String = "xmark"
+    /// Bar fill. Cosmetic only — VoiceOver never reads color.
+    var tint: Color = .accentColor
+    /// Spoken description of what tapping does.
+    var accessibilityHint: String
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: action) {
+                Label(title, systemImage: systemImage)
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .background(tint)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityHint(accessibilityHint)
+            .accessibilityAddTraits(.isButton)
+            // Land VoiceOver focus here first — it's the screen's primary action.
+            .accessibilitySortPriority(1)
+
+            Spacer()
+        }
+        .ignoresSafeArea(edges: .horizontal)
     }
 }
 

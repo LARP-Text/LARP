@@ -46,10 +46,24 @@ nonisolated final class CameraManager:
     /// finished overlay, or an error from the last attempt.
     @MainActor @Published private(set) var captureState: CaptureState = .idle
 
+    /// The in-flight read job, retained so the UI's Cancel button can abort it.
+    /// Assigned on the main actor when a capture begins processing; cleared on
+    /// completion, failure, or cancel. Cancelling it trips `Task.isCancelled`
+    /// inside `runOCR`, whose guarded state write then no-ops — so an abandoned
+    /// read can't surface a result or error over the now-live camera.
+    @MainActor private var ocrTask: Task<Void, Never>?
+
     /// Tracked bounding boxes for the most recent live frame, in Vision-normalized
     /// coordinates (origin bottom-left, components in [0, 1]). The UI overlays
     /// these on top of the preview.
     @MainActor @Published private(set) var liveDetections: [TrackedBox] = []
+
+    /// Rotation (degrees) the live preview layer should apply to its
+    /// `AVCaptureConnection` so the on-screen feed matches how the user is
+    /// holding the device. Mirrors the angle being applied internally to the
+    /// photo and video outputs, which keeps the captured photo, the live
+    /// detection coords, and the preview all in the same upright frame.
+    @MainActor @Published private(set) var previewRotationAngle: CGFloat = 90
 
     enum CaptureState: @unchecked Sendable {
         case idle
@@ -79,6 +93,24 @@ nonisolated final class CameraManager:
     private let detectionsLock = NSLock()
     private var latestDetections: [TrackedBox] = []
 
+    /// Off-main snapshot of `previewRotationAngle` so `sessionQueue` work
+    /// (`configureSessionIfNeeded`, `selectCamera`) can re-apply the angle to
+    /// freshly-created connections without hopping to the main actor.
+    private let rotationLock = NSLock()
+    private var _sessionRotationAngle: CGFloat = 90
+
+    /// The video input currently feeding the session. Held so we can detach
+    /// it the moment a photo is captured (freezing the preview layer on the
+    /// last frame) and re-attach the same instance on reset. Mutated only on
+    /// `sessionQueue`.
+    ///
+    /// Why detach instead of `stopRunning()`: stopping the session is async
+    /// and the preview layer can keep painting buffered frames through the
+    /// shutdown — the live feed visibly leaks under the processing overlay.
+    /// Pulling the input within a `begin/commitConfiguration` block is
+    /// synchronous, so frame delivery stops the instant we commit.
+    private var activeVideoInput: AVCaptureDeviceInput?
+
     /// Talks to the PaddleOCR job API. The API key is read from the app
     /// bundle's Info.plist (populated from `secrets.xcconfig` at build time) —
     /// see `Secrets.swift`.
@@ -104,6 +136,13 @@ nonisolated final class CameraManager:
 
     override init() {
         super.init()
+        // Start watching the accelerometer so the photo and preview pipelines
+        // can rotate to match how the user is holding the device. Has to run
+        // on the main actor — `UIDevice.current` and the notification center
+        // both want main.
+        Task { @MainActor [weak self] in
+            self?.startObservingDeviceOrientation()
+        }
         // Pre-warm the session while SwiftUI is still building the first
         // frame. Repeat launches almost always land in `.authorized`, so
         // overlapping configuration with view construction shaves the
@@ -174,9 +213,20 @@ nonisolated final class CameraManager:
             }
             return
         }
-        Task { @MainActor in self.captureState = .processing }
-        Task.detached(priority: .userInitiated) { [weak self] in
-            await self?.runOCR(on: imageData)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // If the user hit Cancel in the brief window between the shutter
+            // tap and the photo arriving, state is no longer `.processing`.
+            // The photo callback already detached the video input to freeze
+            // the preview, so re-attach the live camera and skip the read
+            // rather than popping a result over it moments later.
+            guard case .processing = self.captureState else {
+                self.start()
+                return
+            }
+            self.ocrTask = Task.detached(priority: .userInitiated) { [weak self] in
+                await self?.runOCR(on: imageData)
+            }
         }
     }
 
@@ -186,6 +236,17 @@ nonisolated final class CameraManager:
     func resetCaptureState() {
         captureState = .idle
         start()
+    }
+
+    /// Abort an in-flight "Reading document…" read and return to the live
+    /// camera. Cancelling the task trips `Task.isCancelled` inside `runOCR`,
+    /// whose guarded state write then no-ops — so the abandoned read can't pop
+    /// a result or error over the camera after the user has moved on.
+    @MainActor
+    func cancelProcessing() {
+        ocrTask?.cancel()
+        ocrTask = nil
+        resetCaptureState()
     }
 
     // MARK: - Lifecycle
@@ -198,6 +259,7 @@ nonisolated final class CameraManager:
             guard let self, granted else { return }
             self.sessionQueue.async {
                 self.configureSessionIfNeeded()
+                self.reattachVideoInputIfNeeded()
                 if !self.session.isRunning {
                     self.session.startRunning()
                 }
@@ -210,6 +272,33 @@ nonisolated final class CameraManager:
             guard let self, self.session.isRunning else { return }
             self.session.stopRunning()
         }
+    }
+
+    /// Detaches the active camera input from the session. The preview layer
+    /// stops receiving frames immediately and freezes on whatever it last
+    /// painted, so the user sees a still image of what they just captured
+    /// instead of a live feed bleeding through the processing overlay.
+    /// Runs on `sessionQueue`.
+    private func detachVideoInput() {
+        guard let input = activeVideoInput,
+              session.inputs.contains(input) else { return }
+        session.beginConfiguration()
+        session.removeInput(input)
+        session.commitConfiguration()
+    }
+
+    /// Re-adds the previously-detached input. No-op if it's still attached
+    /// (e.g. cold start, or `start()` called twice). Runs on `sessionQueue`.
+    private func reattachVideoInputIfNeeded() {
+        guard let input = activeVideoInput,
+              !session.inputs.contains(input),
+              session.canAddInput(input) else { return }
+        session.beginConfiguration()
+        session.addInput(input)
+        session.commitConfiguration()
+        // Re-adding the input gives the outputs new connections — re-stamp
+        // rotation so the first frame back isn't sideways.
+        applyRotationAngleToConnections()
     }
 
     // MARK: - Camera selection
@@ -232,6 +321,12 @@ nonisolated final class CameraManager:
             guard let newInput = try? AVCaptureDeviceInput(device: camera),
                   self.session.canAddInput(newInput) else { return }
             self.session.addInput(newInput)
+            self.activeVideoInput = newInput
+
+            // Swapping the input gives the photo/video outputs new
+            // connections — re-stamp the rotation angle on them so the
+            // first frame after the switch isn't sideways.
+            self.applyRotationAngleToConnections()
 
             Task { @MainActor in self.selectedCamera = camera }
         }
@@ -269,9 +364,10 @@ nonisolated final class CameraManager:
     // MARK: - Session configuration
 
     private func configureSessionIfNeeded() {
-        // Inputs are only added during configuration, so an empty list means
-        // we haven't set the session up yet.
-        guard session.inputs.isEmpty else { return }
+        // Outputs are added once and never removed, so an empty list means
+        // we haven't set the session up yet. (Inputs come and go — they're
+        // detached during photo processing — so they can't gate setup.)
+        guard session.outputs.isEmpty else { return }
 
         session.beginConfiguration()
         session.sessionPreset = .photo
@@ -283,6 +379,7 @@ nonisolated final class CameraManager:
            let input = try? AVCaptureDeviceInput(device: defaultCamera),
            session.canAddInput(input) {
             session.addInput(input)
+            activeVideoInput = input
         }
 
         // Per-frame output for live detection. BGRA keeps frames consistent
@@ -303,6 +400,11 @@ nonisolated final class CameraManager:
         }
 
         session.commitConfiguration()
+
+        // First time the outputs have connections we can stamp; pick up
+        // whatever the orientation observer last saw (defaults to portrait
+        // if it hasn't fired yet, which matches the initial Published value).
+        applyRotationAngleToConnections()
 
         // Batch the two `@Published` mutations into a single MainActor hop —
         // SwiftUI sees one update instead of two back-to-back rebuilds.
@@ -376,6 +478,86 @@ nonisolated final class CameraManager:
         ).devices
     }
 
+    // MARK: - Device orientation
+
+    /// Subscribe to accelerometer-driven orientation notifications and seed
+    /// the current angle from `UIDevice.current.orientation`. Without this,
+    /// `AVCapturePhoto.pixelBuffer` would always be delivered in the sensor's
+    /// native landscape — captured photos would appear sideways/upside-down
+    /// any time the user is holding the phone in portrait or rotated 180°.
+    @MainActor
+    private func startObservingDeviceOrientation() {
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            // `queue: nil` means the notification fires on the posting
+            // thread; bounce to MainActor so it's safe to read UIDevice.
+            Task { @MainActor [weak self] in
+                self?.handleDeviceOrientationChange()
+            }
+        }
+        // Pick up the launch-time orientation so the very first frame is
+        // already upright, instead of waiting for the user to wiggle the
+        // phone for the OS to post a change notification.
+        handleDeviceOrientationChange()
+    }
+
+    @MainActor
+    private func handleDeviceOrientationChange() {
+        // `faceUp` / `faceDown` / `unknown` tell us nothing about how the
+        // user is holding the device — sticking with the last known angle
+        // keeps the camera from snapping back to portrait the moment the
+        // user lays the phone on a table mid-composition.
+        guard let angle = Self.videoRotationAngle(for: UIDevice.current.orientation) else {
+            return
+        }
+        if previewRotationAngle != angle {
+            previewRotationAngle = angle
+        }
+        rotationLock.lock()
+        _sessionRotationAngle = angle
+        rotationLock.unlock()
+        sessionQueue.async { [weak self] in
+            self?.applyRotationAngleToConnections()
+        }
+    }
+
+    /// Maps a `UIDeviceOrientation` to the `videoRotationAngle` (in degrees)
+    /// that AVFoundation needs to deliver upright buffers. Returns nil for
+    /// orientations that don't correspond to a user-meaningful "up" — the
+    /// caller should hold the previous angle in that case.
+    private static func videoRotationAngle(for orientation: UIDeviceOrientation) -> CGFloat? {
+        switch orientation {
+        case .portrait:           return 90
+        case .portraitUpsideDown: return 270
+        case .landscapeLeft:      return 0
+        case .landscapeRight:     return 180
+        default:                  return nil
+        }
+    }
+
+    /// Stamp the current rotation angle onto the photo and video output
+    /// connections. Runs on `sessionQueue` (called from session-config code
+    /// paths and from the orientation observer's queue hop), so it's safe
+    /// to mutate the connections directly.
+    private func applyRotationAngleToConnections() {
+        rotationLock.lock()
+        let angle = _sessionRotationAngle
+        rotationLock.unlock()
+
+        for connection in [photoOutput.connection(with: .video),
+                           videoOutput.connection(with: .video)] {
+            guard let connection else { continue }
+            if connection.isVideoRotationAngleSupported(angle),
+               connection.videoRotationAngle != angle {
+                connection.videoRotationAngle = angle
+            }
+        }
+    }
+
     private func requestAccess(completion: @escaping @Sendable (Bool) -> Void) {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
@@ -409,72 +591,48 @@ nonisolated final class CameraManager:
     ///      ~100-500 ms serial cost in exchange for correctness.
     ///   4. Render the merged layout on the preprocessed image (its size
     ///      matches `pruned.width × pruned.height`, so no rescale at draw).
+    /// CRAFT-only capture path. Runs the on-device CRAFT detector on the
+    /// captured photo and shows its numbered text-region boxes. No PaddleOCR
+    /// (Baidu) request and no layout merge — CRAFT detects regions but does
+    /// not transcribe, so the overlay is boxes only, not recognized text.
+    ///
+    /// Because nothing leaves the device, this path needs no API key; the
+    /// `apiKeyConfigured` gate and the whole `prepareForUpload`/`paddleClient`
+    /// /`augment` machinery above are unused while the button runs CRAFT only.
     private func runOCR(on rawJPEG: Data) async {
-        guard apiKeyConfigured else {
-            await publishFailure("Set the PaddleOCR API key in secrets.xcconfig before capturing.")
-            return
-        }
-
-        let optional = OptionalPayload()
-        guard let prepared = Self.prepareForUpload(
-            rawJPEG,
-            maxPixels: optional.maxPixels,
-            quality: Self.uploadJPEGQuality
-        ) else {
+        guard let image = UIImage(data: rawJPEG) else {
             await publishFailure("Failed to decode the captured photo.")
             return
         }
 
-        let outputDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("paddleocr-\(UUID().uuidString)", isDirectory: true)
-        let filename = "capture-\(UUID().uuidString).jpg"
-
-        do {
-            let pages = try await paddleClient.process(
-                imageData: prepared.jpeg,
-                filename: filename,
-                mimeType: "image/jpeg",
-                optionalPayload: optional,
-                outputDirectory: outputDirectory
-            )
-
-            guard let page = pages.first else {
-                await publishFailure("PaddleOCR returned no pages.")
-                return
+        // Detection + overlay drawing are CPU / Neural-Engine work; run them
+        // off the caller's task so this returns promptly.
+        let overlay = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            let craft = CraftModel()
+            do {
+                let boxes = try craft.detect(in: image)
+                print("CRAFT detected \(boxes.count) box(es)")
+                return craft.renderNumbered(boxes, on: image)
+            } catch {
+                print("CRAFT detection failed: \(error)")
+                return nil
             }
-            guard let pruned = page.prunedResult else {
-                await publishFailure("PaddleOCR response was missing layout data.")
-                return
-            }
+        }.value
 
-            // CRAFT consumes the same image Baidu's bboxes describe so the
-            // overlap filter compares apples to apples. The preprocessed
-            // URL is the post-orientation, post-dewarp image; if it's
-            // absent (server skipped preprocessing for this page) we fall
-            // back to the upright bytes we sent.
-            let craftSource = Self.loadCraftSource(
-                preprocessedURL: page.preprocessedImageURL,
-                fallback: prepared.image
-            )
-            let craftBoxes = await Self.detectCraftBoxes(in: craftSource)
-            let augmented = Self.augment(pruned: pruned, with: craftBoxes)
-            let renderSource = craftSource
+        // The user may have hit Cancel while CRAFT was running. Bail before
+        // touching captureState so the abandoned read can't pop a result or
+        // error over the now-live camera.
+        guard !Task.isCancelled else { return }
 
-            // Document build + render is pure CPU work; offload so this
-            // method returns to its caller as fast as possible. On dense
-            // pages this is 50-200 ms of layout sort + path drawing that
-            // would otherwise stall the publish step.
-            let overlay = await Task.detached(priority: .userInitiated) { () -> UIImage in
-                let document = VirtualDocument.make(from: augmented, image: renderSource)
-                return document.render()
-            }.value
+        guard let overlay else {
+            await publishFailure("CRAFT detection failed — is CRAFT.mlpackage in the target?")
+            return
+        }
 
-            await MainActor.run {
-                self.captureState = .result(overlay)
-                self.stop()
-            }
-        } catch {
-            await publishFailure("PaddleOCR error: \(error)")
+        await MainActor.run {
+            self.captureState = .result(overlay)
+            self.stop()
+            self.ocrTask = nil
         }
     }
 
@@ -591,6 +749,7 @@ nonisolated final class CameraManager:
 
     @MainActor
     private func publishFailure(_ message: String) {
+        ocrTask = nil
         captureState = .failed(message)
     }
 
@@ -674,6 +833,14 @@ nonisolated final class CameraManager:
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
+        // Photo (or error) is in hand — the camera has done its job for this
+        // shutter press, so detach the input now. This freezes the preview
+        // layer on the last frame for the duration of OCR / the failure
+        // overlay; `start()` re-attaches on reset.
+        sessionQueue.async { [weak self] in
+            self?.detachVideoInput()
+        }
+
         if let error {
             Task { @MainActor in
                 self.captureState = .failed("Capture failed: \(error.localizedDescription)")

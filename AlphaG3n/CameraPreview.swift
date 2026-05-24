@@ -14,16 +14,22 @@ import AVFoundation
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     var detections: [TrackedBox] = []
+    /// Rotation (degrees) for the preview layer's `AVCaptureConnection`.
+    /// Driven by `CameraManager.previewRotationAngle` so the preview tracks
+    /// device orientation the same way the captured photo does.
+    var rotationAngle: CGFloat = 90
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.videoPreviewLayer.session = session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        view.apply(rotationAngle: rotationAngle)
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
         uiView.apply(detections: detections)
+        uiView.apply(rotationAngle: rotationAngle)
     }
 
     /// A UIView whose backing layer *is* the preview layer, so the feed always
@@ -79,6 +85,19 @@ struct CameraPreview: UIViewRepresentable {
         func apply(detections: [TrackedBox]) {
             lastDetections = detections
             rebuildPath()
+        }
+
+        /// Rotate the preview layer's connection so the live feed matches
+        /// the device's current orientation. Without this, the preview
+        /// would always show the sensor's native landscape — which would
+        /// look fine in landscape and rotated 90°/180° in portrait or
+        /// upside-down portrait, exactly the way the captured photo used
+        /// to be broken.
+        func apply(rotationAngle angle: CGFloat) {
+            guard let connection = videoPreviewLayer.connection,
+                  connection.isVideoRotationAngleSupported(angle),
+                  connection.videoRotationAngle != angle else { return }
+            connection.videoRotationAngle = angle
         }
 
         private func rebuildPath() {
