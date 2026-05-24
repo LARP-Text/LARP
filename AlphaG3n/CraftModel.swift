@@ -65,14 +65,12 @@ public final class CraftModel {
     public func detect(in image: UIImage) throws -> [Box] {
         let model = try loadModel()
 
-        guard let pb = Self.makePixelBuffer(from: image,
-                                            width: Self.inputSize,
-                                            height: Self.inputSize) else {
+        guard let prepared = Self.makePixelBuffer(from: image, size: Self.inputSize) else {
             throw CraftError.pixelBufferFailed
         }
 
         let input = try MLDictionaryFeatureProvider(
-            dictionary: ["image": MLFeatureValue(pixelBuffer: pb)])
+            dictionary: ["image": MLFeatureValue(pixelBuffer: prepared.buffer)])
         let out = try model.prediction(from: input)
 
         guard let region = out.featureValue(for: "region_score")?.multiArrayValue,
@@ -89,18 +87,23 @@ public final class CraftModel {
 
         let rawBoxes = extractBoxes(region: regionBuf, affinity: affinityBuf, w: w, h: h)
 
-        // Map score-map coords -> 768 input coords (x2) -> original image points.
-        let sx = image.size.width  / CGFloat(Self.inputSize)
-        let sy = image.size.height / CGFloat(Self.inputSize)
+        // Score-map pixel -> input pixel is ×2 (score map is half resolution).
+        // Input pixel -> image point divides out the fit factor that
+        // `makePixelBuffer` used when placing the image into the square.
+        let imagePerScoreMapPixel = 2 / prepared.scale
+        let bounds = CGRect(origin: .zero, size: image.size)
 
-        return rawBoxes.enumerated().map { i, r in
-            let scaled = CGRect(
-                x: r.minX * 2 * sx,
-                y: r.minY * 2 * sy,
-                width:  r.width  * 2 * sx,
-                height: r.height * 2 * sy)
-            return Box(index: i, rect: scaled)
+        let mapped = rawBoxes.compactMap { r -> CGRect? in
+            let rect = CGRect(
+                x: r.minX * imagePerScoreMapPixel,
+                y: r.minY * imagePerScoreMapPixel,
+                width:  r.width  * imagePerScoreMapPixel,
+                height: r.height * imagePerScoreMapPixel
+            ).intersection(bounds)
+            return (rect.isNull || rect.isEmpty) ? nil : rect
         }
+
+        return mapped.enumerated().map { Box(index: $0.offset, rect: $0.element) }
     }
 
     /// Draws each box on `image` with its index number, returning the overlay.
@@ -315,13 +318,22 @@ public final class CraftModel {
             if area < minArea { continue }
             if maxRegion < textThreshold { continue }
 
-            // small padding to mimic CRAFT's dilation step
-            let pad = 2
-            let bx = max(0, minX - pad)
-            let by = max(0, minY - pad)
-            let bw = min(w - 1, maxX + pad) - bx + 1
-            let bh = min(h - 1, maxY + pad) - by + 1
-            boxes.append(CGRect(x: bx, y: by, width: bw, height: bh))
+            // Per-component dilation from the Python reference:
+            //   niter = int(sqrt(area * min(bw,bh) / (bw*bh)) * 2)
+            // The previous hardcoded pad=2 produced boxes so tight that the
+            // downstream IOU filter in LayoutAugmentation threw them away as
+            // duplicates of slightly larger Baidu blocks.
+            let bw = maxX - minX + 1
+            let bh = maxY - minY + 1
+            let bboxArea = bw * bh
+            let niter = bboxArea > 0
+                ? Int((Double(area * min(bw, bh)) / Double(bboxArea)).squareRoot() * 2)
+                : 0
+            let bx = max(0, minX - niter)
+            let by = max(0, minY - niter)
+            let bxE = min(w - 1, maxX + niter)
+            let byE = min(h - 1, maxY + niter)
+            boxes.append(CGRect(x: bx, y: by, width: bxE - bx + 1, height: byE - by + 1))
         }
         return boxes
     }
@@ -352,17 +364,35 @@ public final class CraftModel {
         return out
     }
 
-    /// Renders a UIImage into a square BGRA CVPixelBuffer for the Core ML image input.
+    /// Renders `image` into a square `size`×`size` BGRA pixel buffer using
+    /// CRAFT's aspect-preserving fit: a single ratio scales the image so its
+    /// long side equals `size`, the result is placed at image-display (0,0),
+    /// and the remaining strip is zero-padded. The previous implementation
+    /// stretched non-uniformly to fill the square, which squashed characters
+    /// on landscape camera frames badly enough that the detector missed them.
+    ///
+    /// Also flips the context up-front so the model sees the image upright.
+    /// A raw CGBitmapContext has its origin at the bottom-left, so calling
+    /// `draw(cg, in:)` against it mirrors the image vertically — which the
+    /// previous version was unintentionally doing.
+    ///
+    /// Returns the buffer paired with the fit ratio, so the caller can
+    /// invert it when mapping score-map boxes back into image coordinates.
     private static func makePixelBuffer(from image: UIImage,
-                                        width: Int, height: Int) -> CVPixelBuffer? {
+                                        size: Int) -> (buffer: CVPixelBuffer, scale: CGFloat)? {
         guard let cg = image.cgImage else { return nil }
+
+        let scale = min(CGFloat(size) / image.size.width,
+                        CGFloat(size) / image.size.height)
+        let contentW = image.size.width * scale
+        let contentH = image.size.height * scale
 
         let attrs: [CFString: Any] = [
             kCVPixelBufferCGImageCompatibilityKey: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey: true
         ]
         var pb: CVPixelBuffer?
-        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+        let status = CVPixelBufferCreate(kCFAllocatorDefault, size, size,
                                          kCVPixelFormatType_32BGRA,
                                          attrs as CFDictionary, &pb)
         guard status == kCVReturnSuccess, let buffer = pb else { return nil }
@@ -371,20 +401,27 @@ public final class CraftModel {
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
 
         guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        // CVPixelBufferCreate leaves the backing store uninitialized, so the
+        // padded strip would otherwise contain arbitrary bytes. CRAFT was
+        // trained against black padding.
+        memset(base, 0, bytesPerRow * size)
+
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let context = CGContext(
             data: base,
-            width: width, height: height,
+            width: size, height: size,
             bitsPerComponent: 8,
-            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            bytesPerRow: bytesPerRow,
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
                 | CGBitmapInfo.byteOrder32Little.rawValue
         ) else { return nil }
 
-        // Resize (stretch) into the square the model expects, matching the
-        // non-aspect-preserving resize used in the Python pipeline.
-        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return buffer
+        context.translateBy(x: 0, y: CGFloat(size))
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: contentW, height: contentH))
+
+        return (buffer, scale)
     }
 }
