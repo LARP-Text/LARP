@@ -36,6 +36,22 @@ nonisolated final class CameraManager:
     /// The camera currently feeding the session.
     @MainActor @Published private(set) var selectedCamera: AVCaptureDevice?
 
+    /// What the UI should show: live camera, an in-flight OCR job, the
+    /// finished overlay, or an error from the last attempt.
+    @MainActor @Published private(set) var captureState: CaptureState = .idle
+
+    /// Tracked bounding boxes for the most recent live frame, in Vision-normalized
+    /// coordinates (origin bottom-left, components in [0, 1]). The UI overlays
+    /// these on top of the preview.
+    @MainActor @Published private(set) var liveDetections: [TrackedBox] = []
+
+    enum CaptureState: @unchecked Sendable {
+        case idle
+        case processing
+        case result(UIImage)
+        case failed(String)
+    }
+
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
 
@@ -46,6 +62,12 @@ nonisolated final class CameraManager:
     /// Dedicated queue on which live frames are delivered.
     private let videoQueue = DispatchQueue(label: "camera.video")
 
+    /// Off-main snapshot of the latest displayed detections, mirroring
+    /// `liveDetections` so the photo callback can pick a crop quad without
+    /// hopping to the main actor. Protected by `detectionsLock`.
+    private let detectionsLock = NSLock()
+    private var latestDetections: [TrackedBox] = []
+
 
     /// Talks to the PaddleOCR job API. The API key is read from the app
     /// bundle's Info.plist (populated from `secrets.xcconfig` at build time) —
@@ -55,23 +77,72 @@ nonisolated final class CameraManager:
     /// Reused to turn camera pixel buffers into JPEG data.
     private let ciContext = CIContext()
 
+    /// YOLOE-26L segmentation detector — replaces both the legacy doc-seg and
+    /// the YOLOv8-world detectors. Each detection carries an oriented quad
+    /// derived from the instance mask. Nil if the model fails to load.
+    private let segDetector = YoloESegDetector.makeDefault()
+    /// ByteTrack-style association across frames so the boxes flow smoothly.
+    private let tracker = ByteTracker()
+    /// Hide a tracked box if this fraction of its area lies inside a larger
+    /// sibling — keeps the screen-inside-laptop / label-on-package case clean.
+    /// Display-only; the tracker keeps the hidden box around for re-association.
+    var displayContainmentThreshold: CGFloat = 0.6
+
     // MARK: - Empty hooks for you to fill in
 
     /// Called on every live frame.
     /// Runs on `videoQueue` (a background thread) — dispatch to main before
     /// touching any UI.
     private func didReceiveFrame(_ pixelBuffer: CVPixelBuffer) {
-        
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        let detections = segDetector?.detect(in: image) ?? []
+        let tracked = tracker.update(detections: detections)
+        let displayed = TrackedBox.removingContained(
+            tracked,
+            containmentThreshold: displayContainmentThreshold
+        )
+        detectionsLock.lock()
+        latestDetections = displayed
+        detectionsLock.unlock()
+        Task { @MainActor in self.liveDetections = displayed }
     }
 
     /// Called once each time the shutter button finishes taking a photo.
     /// Runs on a background thread — dispatch to main before touching any UI.
+    ///
+    /// If a tracked detection is currently "highlighted" (the red trapezoid in
+    /// the preview), the captured frame is cropped and perspective-corrected
+    /// to that quad before being sent to OCR — otherwise the full frame is used.
     private func didCapturePhoto(_ pixelBuffer: CVPixelBuffer) {
-        guard let imageData = jpegData(from: pixelBuffer) else {
-            print("PaddleOCR: failed to encode the captured photo")
+        detectionsLock.lock()
+        let snapshot = latestDetections
+        detectionsLock.unlock()
+
+        let highlightedQuad = TrackedBox.highlightWinner(in: snapshot)
+            .flatMap { $0.normalizedQuad ?? Quad(rect: $0.normalizedRect) }
+
+        let imageData: Data? = {
+            if let quad = highlightedQuad {
+                return jpegData(from: pixelBuffer, perspectiveCorrectingTo: quad)
+            }
+            return jpegData(from: pixelBuffer)
+        }()
+
+        guard let imageData else {
+            Task { @MainActor in
+                self.captureState = .failed("Failed to encode the captured photo.")
+            }
             return
         }
+        Task { @MainActor in self.captureState = .processing }
         Task { await runOCR(on: imageData) }
+    }
+
+    /// Reset back to live camera. Call from the UI when the user dismisses
+    /// the result or error overlay.
+    @MainActor
+    func resetCaptureState() {
+        captureState = .idle
     }
 
     // MARK: - Lifecycle
@@ -204,10 +275,12 @@ nonisolated final class CameraManager:
 
     // MARK: - PaddleOCR upload
 
-    /// Uploads the captured photo to PaddleOCR and prints the extracted output.
+    /// Uploads the captured photo to PaddleOCR, builds a `VirtualDocument`
+    /// from the first returned page, renders the color-coded overlay, and
+    /// publishes it via `captureState` for the UI.
     private func runOCR(on imageData: Data) async {
         guard PaddleOCRClient.isAPIKeyConfigured else {
-            print("PaddleOCR: set the API key in PaddleOCRClient+APIKey.swift before capturing a photo.")
+            await publishFailure("Set the PaddleOCR API key in secrets.xcconfig before capturing.")
             return
         }
 
@@ -220,46 +293,97 @@ nonisolated final class CameraManager:
             let pages = try await paddleClient.process(
                 fileURL: imageURL,
                 optionalPayload: OptionalPayload(useDocOrientationClassify: true),
-                outputDirectory: outputDirectory,
-                progress: { event in print("PaddleOCR progress: \(event)") }
+                outputDirectory: outputDirectory
             )
 
-            print("PaddleOCR: extracted \(pages.count) page(s)")
-            for page in pages {
-                print("----- Page \(page.pageIndex) -----")
-                if page.blocks.isEmpty {
-                    // We didn't recognize any bbox blocks in the response;
-                    // dump the raw JSON so the schema can be inspected and the
-                    // decoder in PaddleOCRModel.swift refined.
-                    print("No decoded blocks. Raw JSON:")
-                    print(page.rawJSON)
-                } else {
-                    for block in page.blocks {
-                        let bbox = block.bbox
-                            .map { String(format: "%.1f", $0) }
-                            .joined(separator: ", ")
-                        print("[\(block.label)] bbox=[\(bbox)]")
-                        if !block.content.isEmpty {
-                            print(block.content)
-                        }
-                    }
-                }
-                if !page.inlineImages.isEmpty {
-                    print("Inline images: \(page.inlineImages)")
-                }
-                if !page.outputImages.isEmpty {
-                    print("Output images: \(page.outputImages)")
-                }
+            guard let page = pages.first else {
+                await publishFailure("PaddleOCR returned no pages.")
+                return
             }
+            guard let pruned = page.prunedResult else {
+                await publishFailure("PaddleOCR response was missing layout data.")
+                return
+            }
+
+            // Prefer the deskewed/oriented preprocessed image (its coordinate
+            // space matches the bboxes). Fall back to the original capture.
+            let sourceImage: UIImage = {
+                if let url = page.preprocessedImageURL,
+                   let data = try? Data(contentsOf: url),
+                   let img = UIImage(data: data) {
+                    return img
+                }
+                return UIImage(data: imageData) ?? UIImage()
+            }()
+
+            let document = VirtualDocument.make(from: pruned, image: sourceImage)
+            let overlay = document.render()
+            await MainActor.run { self.captureState = .result(overlay) }
         } catch {
-            print("PaddleOCR error: \(error)")
+            await publishFailure("PaddleOCR error: \(error)")
         }
+    }
+
+    @MainActor
+    private func publishFailure(_ message: String) {
+        captureState = .failed(message)
     }
 
     /// Encodes a camera pixel buffer as JPEG data for upload.
     private func jpegData(from pixelBuffer: CVPixelBuffer) -> Data? {
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.9)
+    }
+
+    /// Crops + perspective-corrects the pixel buffer to the given Vision-normalized
+    /// quad, then JPEG-encodes the rectified result.
+    ///
+    /// Uses `CIPerspectiveCorrection`, which auto-sizes the output rectangle to
+    /// the average length of opposing input sides — so the document's natural
+    /// aspect ratio is preserved and features (text, lines, edges) aren't
+    /// stretched. The 4 corners are re-sorted into TL/TR/BR/BL in CIImage space
+    /// (bottom-left origin) so the filter receives a correctly-oriented quad
+    /// regardless of which corner the detector listed first.
+    private func jpegData(from pixelBuffer: CVPixelBuffer,
+                          perspectiveCorrectingTo quad: Quad) -> Data? {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let extent = ciImage.extent
+
+        // Vision-normalized (bottom-left, [0,1]) -> CIImage pixel coords (same
+        // origin convention, so no Y flip).
+        let pixelPoints = quad.points.map { p in
+            CGPoint(x: extent.minX + p.x * extent.width,
+                    y: extent.minY + p.y * extent.height)
+        }
+
+        // Standard "order_points" sort in bottom-left-origin space:
+        //   BL = min(x + y)     TR = max(x + y)
+        //   TL = min(x - y)     BR = max(x - y)
+        let sums = pixelPoints.map { $0.x + $0.y }
+        let diffs = pixelPoints.map { $0.x - $0.y }
+        guard let bl = sums.indices.min(by: { sums[$0] < sums[$1] }),
+              let tr = sums.indices.max(by: { sums[$0] < sums[$1] }),
+              let tl = diffs.indices.min(by: { diffs[$0] < diffs[$1] }),
+              let br = diffs.indices.max(by: { diffs[$0] < diffs[$1] }),
+              Set([bl, tr, tl, br]).count == 4 else {
+            // Degenerate quad — fall back to a plain encode of the full frame.
+            return jpegData(from: pixelBuffer)
+        }
+
+        guard let filter = CIFilter(name: "CIPerspectiveCorrection") else {
+            return jpegData(from: pixelBuffer)
+        }
+        filter.setValue(ciImage, forKey: kCIInputImageKey)
+        filter.setValue(CIVector(cgPoint: pixelPoints[tl]), forKey: "inputTopLeft")
+        filter.setValue(CIVector(cgPoint: pixelPoints[tr]), forKey: "inputTopRight")
+        filter.setValue(CIVector(cgPoint: pixelPoints[bl]), forKey: "inputBottomLeft")
+        filter.setValue(CIVector(cgPoint: pixelPoints[br]), forKey: "inputBottomRight")
+
+        guard let output = filter.outputImage,
+              let cgImage = ciContext.createCGImage(output, from: output.extent) else {
             return nil
         }
         return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.9)
@@ -273,10 +397,15 @@ nonisolated final class CameraManager:
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         didReceiveFrame(pixelBuffer)
     }
+    
+    func photoOutput(_ output: AVCapturePhotoOutput, willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+        AudioServicesDisposeSystemSoundID(1108)
+    }
 
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
+        AudioServicesDisposeSystemSoundID(1108)
         guard error == nil, let pixelBuffer = photo.pixelBuffer else { return }
         didCapturePhoto(pixelBuffer)
     }

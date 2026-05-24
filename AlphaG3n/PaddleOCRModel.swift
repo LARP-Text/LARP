@@ -33,24 +33,34 @@ public struct OptionalPayload: Codable, Sendable {
     }
 }
 
+public struct TextBlock: Sendable {
+    /// Raw layout label from PaddleOCR (e.g. `text`, `doc_title`, `table`).
+    public let label: String
+    /// `[x1, y1, x2, y2]` in the preprocessed image's pixel coordinates.
+    public let bbox: [Double]
+    /// Recognized text content for this block (empty if PaddleOCR didn't return any).
+    public let content: String
+
+    public init(label: String, bbox: [Double], content: String) {
+        self.label = label
+        self.bbox = bbox
+        self.content = content
+    }
+}
+
 public struct ExtractedPage: Sendable {
     public let pageIndex: Int
     public let markdown: String
     public let blocks: [TextBlock]
     public let inlineImages: [String: URL]
     public let outputImages: [String: URL]
-    /// The full per-page JSON response from the API, kept around so callers can
-    /// inspect any field PaddleOCR returns that we don't decode explicitly.
-    public let rawJSON: String
-}
-
-public struct TextBlock: Sendable {
-    /// PaddleOCR's category for the block (e.g. "text", "title", "table").
-    public let label: String
-    /// `[x1, y1, x2, y2]` in the source image's pixel coordinates.
-    public let bbox: [Double]
-    /// Text content for the block, if PaddleOCR returned one.
-    public let content: String
+    /// Rich layout data (bboxes, labels, polygons) used to build a `VirtualDocument`.
+    /// `nil` only if the API omitted it for this page.
+    public let prunedResult: VirtualDocument.PrunedResult?
+    /// Local path to the post-processed / deskewed source image whose
+    /// coordinate space matches `prunedResult` bboxes. `nil` if the API
+    /// didn't return one (e.g. all preprocessing flags off).
+    public let preprocessedImageURL: URL?
 }
 
 public enum PaddleOCRError: Error, CustomStringConvertible {
@@ -124,30 +134,18 @@ nonisolated private struct LayoutResultLine: Decodable {
 
 nonisolated private struct LayoutResult: Decodable {
     let layoutParsingResults: [LayoutParsingResult]
+    let preprocessedImages: [String]?
 }
 
 nonisolated private struct LayoutParsingResult: Decodable {
+    let prunedResult: VirtualDocument.PrunedResult?
     let markdown: MarkdownPayload
     let outputImages: [String: String]?
-    let prunedResult: PrunedResult?
 }
 
 nonisolated private struct MarkdownPayload: Decodable {
     let text: String
     let images: [String: String]
-}
-
-/// Optional everywhere — PaddleOCR's field names are best-effort guesses
-/// (camelCase to match the rest of the API). A missing field just means we
-/// fall back to the raw JSON dump for that page.
-nonisolated private struct PrunedResult: Decodable {
-    let parsingResList: [ParsingResultBlock]?
-}
-
-nonisolated private struct ParsingResultBlock: Decodable {
-    let blockLabel: String?
-    let blockBbox: [Double]?
-    let blockContent: String?
 }
 
 // MARK: - Multipart helper (plain struct; not an actor)
@@ -404,11 +402,15 @@ public actor PaddleOCRClient {
         for line in lines {
             guard let data = line.data(using: .utf8) else { continue }
             let parsed = try decoder.decode(LayoutResultLine.self, from: data)
-            for parsing in parsed.result.layoutParsingResults {
+            let preprocessed = parsed.result.preprocessedImages
+            for (localIndex, parsing) in parsed.result.layoutParsingResults.enumerated() {
+                let preprocessedURLString: String? =
+                    (preprocessed != nil && localIndex < preprocessed!.count)
+                    ? preprocessed![localIndex] : nil
                 let page = try await writePage(
                     pageIndex: pageIndex,
                     parsing: parsing,
-                    rawJSON: line,
+                    preprocessedImageURLString: preprocessedURLString,
                     outputDirectory: outputDirectory
                 )
                 pages.append(page)
@@ -422,7 +424,7 @@ public actor PaddleOCRClient {
     private func writePage(
         pageIndex: Int,
         parsing: LayoutParsingResult,
-        rawJSON: String,
+        preprocessedImageURLString: String?,
         outputDirectory: URL
     ) async throws -> ExtractedPage {
         let mdURL = outputDirectory.appendingPathComponent("doc_\(pageIndex).md")
@@ -438,12 +440,24 @@ public actor PaddleOCRClient {
             return (name, remote, outputDirectory.appendingPathComponent("\(name)_\(pageIndex).jpg"))
         }
 
+        let preprocessedSpecs: [(String, URL, URL)] = {
+            guard
+                let urlString = preprocessedImageURLString,
+                let remote = URL(string: urlString)
+            else { return [] }
+            return [(
+                "preprocessed",
+                remote,
+                outputDirectory.appendingPathComponent("preprocessed_\(pageIndex).jpg")
+            )]
+        }()
+
         let inlineResults = try await downloadConcurrently(specs: inlineSpecs)
         let outputResults = try await downloadConcurrently(specs: outputSpecs)
+        let preprocessedResults = try await downloadConcurrently(specs: preprocessedSpecs)
 
-        let blocks: [TextBlock] = (parsing.prunedResult?.parsingResList ?? []).compactMap { raw in
-            guard let label = raw.blockLabel, let bbox = raw.blockBbox else { return nil }
-            return TextBlock(label: label, bbox: bbox, content: raw.blockContent ?? "")
+        let blocks: [TextBlock] = (parsing.prunedResult?.parsingResList ?? []).map { raw in
+            TextBlock(label: raw.blockLabel, bbox: raw.blockBbox, content: raw.blockContent)
         }
 
         return ExtractedPage(
@@ -452,7 +466,8 @@ public actor PaddleOCRClient {
             blocks: blocks,
             inlineImages: inlineResults,
             outputImages: outputResults,
-            rawJSON: rawJSON
+            prunedResult: parsing.prunedResult,
+            preprocessedImageURL: preprocessedResults["preprocessed"]
         )
     }
 
