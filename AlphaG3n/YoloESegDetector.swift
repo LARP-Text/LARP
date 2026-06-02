@@ -32,7 +32,6 @@ import Vision
 ///   6. Unmap the bbox and quad corners from 640×640 letterboxed space back
 ///      into the original image's normalized Vision coords.
 final class YoloESegDetector {
-
     /// Drop detections below this score after parsing the model output.
     /// Set low so weak hits can still feed the tracker's stage-2 (occlusion
     /// preservation). Spurious new-track creation is gated separately by
@@ -47,11 +46,11 @@ final class YoloESegDetector {
     /// out to meet a stray foreground pixel. Turn off if you ever want the
     /// raw mask shape (e.g. for objects that really do come in two disjoint
     /// pieces, though those are rare).
-    var useLargestComponentOnly: Bool = true
+    var useLargestComponentOnly = true
     /// If the mask's covariance eigenvalue ratio (minor/major) exceeds this,
     /// the shape is too round for `atan2`-based orientation to be stable. We
     /// emit an axis-aligned quad in that case. 1.0 = perfect circle; 0.0 = line.
-    var isotropyThreshold: Double = 0.85
+    var isotropyThreshold = 0.85
 
     private let request: VNCoreMLRequest
 
@@ -99,7 +98,7 @@ final class YoloESegDetector {
         guard !surviving.isEmpty else { return [] }
 
         // 3. Build per-instance masks + OBBs.
-        let protoFlat = flatten(prototypes: protoArray)  // [32 * 160 * 160] contiguous Float
+        let protoFlat = flatten(prototypes: protoArray) // [32 * 160 * 160] contiguous Float
         return surviving.compactMap { candidate in
             let rawMask = makeInstanceMask(
                 coefficients: candidate.maskCoefs,
@@ -169,10 +168,10 @@ final class YoloESegDetector {
     // MARK: - Detection parsing
 
     private struct Candidate {
-        let bbox640: CGRect      // pixel rect in 640×640 model space, top-left origin
+        let bbox640: CGRect // pixel rect in 640×640 model space, top-left origin
         let score: Float
         let classId: Int
-        let maskCoefs: [Float]   // 32 elements
+        let maskCoefs: [Float] // 32 elements
     }
 
     private func parseDetections(_ array: MLMultiArray, minConfidence: Float) -> [Candidate] {
@@ -236,7 +235,7 @@ final class YoloESegDetector {
     }
 
     private struct InstanceMask {
-        let data: [Float]   // length = width * height, foreground = >threshold
+        let data: [Float] // length = width * height, foreground = >threshold
         let width: Int
         let height: Int
         /// Top-left of the cropped mask in the 160×160 proto plane (top-left origin).
@@ -278,7 +277,7 @@ final class YoloESegDetector {
         vDSP_vdiv(full, 1, &ones, 1, &full, 1, vDSP_Length(protoArea))
 
         // 2. Crop to the bbox in proto space (proto is 1/4 model resolution).
-        let scale: CGFloat = CGFloat(protoSide) / 640.0
+        let scale = CGFloat(protoSide) / 640.0
         let x0 = max(0, Int(floor(bbox640.minX * scale)))
         let y0 = max(0, Int(floor(bbox640.minY * scale)))
         let x1 = min(protoSide, Int(ceil(bbox640.maxX * scale)))
@@ -348,7 +347,9 @@ final class YoloESegDetector {
         }
 
         var filtered = [Float](repeating: 0, count: count)
-        for i in largestComponent { filtered[i] = 1 }
+        for i in largestComponent {
+            filtered[i] = 1
+        }
         return filtered
     }
 
@@ -440,9 +441,9 @@ final class YoloESegDetector {
                 let onEdge = x == 0 || y == 0 || x == w - 1 || y == h - 1
                 let touchesBg = !onEdge && (
                     mask[(y - 1) * w + x] < threshold ||
-                    mask[(y + 1) * w + x] < threshold ||
-                    mask[rowBase + (x - 1)] < threshold ||
-                    mask[rowBase + (x + 1)] < threshold
+                        mask[(y + 1) * w + x] < threshold ||
+                        mask[rowBase + (x - 1)] < threshold ||
+                        mask[rowBase + (x + 1)] < threshold
                 )
                 if onEdge || touchesBg {
                     boundary.append((Double(x), Double(y)))
@@ -459,7 +460,7 @@ final class YoloESegDetector {
         // Map proto-space coords → 640 model coords (proto is 1/4 scale).
         let scale = 640.0 / 160.0
         let oX = Double(origin.x), oY = Double(origin.y)
-        let points = cornersUV.map { (u, v) -> CGPoint in
+        let points = cornersUV.map { u, v -> CGPoint in
             CGPoint(x: (u + oX) * scale, y: (v + oY) * scale)
         }
         return Quad(points: points)
@@ -477,14 +478,14 @@ final class YoloESegDetector {
 
         var lower: [(Double, Double)] = []
         for p in sorted {
-            while lower.count >= 2 && cross(lower[lower.count - 2], lower[lower.count - 1], p) <= 0 {
+            while lower.count >= 2, cross(lower[lower.count - 2], lower[lower.count - 1], p) <= 0 {
                 lower.removeLast()
             }
             lower.append(p)
         }
         var upper: [(Double, Double)] = []
         for p in sorted.reversed() {
-            while upper.count >= 2 && cross(upper[upper.count - 2], upper[upper.count - 1], p) <= 0 {
+            while upper.count >= 2, cross(upper[upper.count - 2], upper[upper.count - 1], p) <= 0 {
                 upper.removeLast()
             }
             upper.append(p)
@@ -528,9 +529,9 @@ final class YoloESegDetector {
         _ d: (Double, Double)
     ) -> Double {
         let s = a.0 * b.1 - b.0 * a.1
-              + b.0 * c.1 - c.0 * b.1
-              + c.0 * d.1 - d.0 * c.1
-              + d.0 * a.1 - a.0 * d.1
+            + b.0 * c.1 - c.0 * b.1
+            + c.0 * d.1 - d.0 * c.1
+            + d.0 * a.1 - a.0 * d.1
         return abs(s) * 0.5
     }
 }
@@ -552,9 +553,9 @@ private struct Letterbox {
         self.imageSize = imageSize
         self.modelSize = modelSize
         let r = min(modelSize / imageSize.width, modelSize / imageSize.height)
-        self.ratio = r
-        self.padX = (modelSize - imageSize.width * r) / 2
-        self.padY = (modelSize - imageSize.height * r) / 2
+        ratio = r
+        padX = (modelSize - imageSize.width * r) / 2
+        padY = (modelSize - imageSize.height * r) / 2
     }
 
     /// Convert a (640-space, top-left origin) point to Vision normalized

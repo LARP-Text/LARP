@@ -15,7 +15,6 @@ import Foundation
 import CoreGraphics
 
 public enum LayoutAugmentation {
-
     /// Default coverage threshold. A CRAFT box is dropped when, against the
     /// Baidu *text* blocks (figures/images are not considered — see
     /// `extraBlocks`), either:
@@ -59,7 +58,8 @@ public enum LayoutAugmentation {
         // blocks, so a new block id can't collide with a figure's.)
         let textRects = existing
             .filter { VirtualDocument.readableTextLabels.contains(
-                VirtualDocument.BlockLabel(apiValue: $0.blockLabel)) }
+                VirtualDocument.BlockLabel(apiValue: $0.blockLabel)
+            ) }
             .map { Self.rect(fromBbox: $0.blockBbox) }
         let survivors = filterSurvivors(
             craftBoxes: craftBoxes,
@@ -147,7 +147,9 @@ public enum LayoutAugmentation {
             seen.removeAll(keepingCapacity: true)
             for key in cellsCovered(by: craft, cellSize: cell) {
                 guard let bucket = grid[key] else { continue }
-                for idx in bucket { seen.insert(idx) }
+                for idx in bucket {
+                    seen.insert(idx)
+                }
             }
 
             var totalIntersection: CGFloat = 0

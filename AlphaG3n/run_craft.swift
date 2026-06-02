@@ -29,14 +29,17 @@ let imageURL = URL(fileURLWithPath: args[2])
 let outURL = URL(fileURLWithPath: args.count >= 4 ? args[3] : "/tmp/craft_overlay.png")
 
 // MARK: - Load image, baking EXIF orientation into pixels (like prepareForUpload).
+
 func loadUprightCGImage(_ url: URL) -> CGImage {
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+          let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
+    else {
         die("cannot decode image: \(url.path)")
     }
     var orientation = 1
     if let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-       let o = props[kCGImagePropertyOrientation] as? Int {
+       let o = props[kCGImagePropertyOrientation] as? Int
+    {
         orientation = o
     }
     if orientation == 1 { return cg }
@@ -50,6 +53,7 @@ let imgW = image.width, imgH = image.height
 FileHandle.standardError.write("image \(imgW)x\(imgH)\n".data(using: .utf8)!)
 
 // MARK: - makePixelBuffer (aspect-preserving fit into 768x768, black pad, upright).
+
 func makePixelBuffer(_ cg: CGImage, size: Int) -> (CVPixelBuffer, CGFloat)? {
     let scale = min(CGFloat(size) / CGFloat(cg.width), CGFloat(size) / CGFloat(cg.height))
     let contentW = CGFloat(cg.width) * scale
@@ -62,7 +66,7 @@ func makePixelBuffer(_ cg: CGImage, size: Int) -> (CVPixelBuffer, CGFloat)? {
     guard CVPixelBufferCreate(kCFAllocatorDefault, size, size,
                               kCVPixelFormatType_32BGRA,
                               attrs as CFDictionary, &pb) == kCVReturnSuccess,
-          let buffer = pb else { return nil }
+        let buffer = pb else { return nil }
     CVPixelBufferLockBaseAddress(buffer, [])
     defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
     guard let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
@@ -85,18 +89,21 @@ guard let (pixelBuffer, scale) = makePixelBuffer(image, size: inputSize) else {
 }
 
 // MARK: - Model.
+
 let config = MLModelConfiguration()
 config.computeUnits = .all
 guard let model = try? MLModel(contentsOf: modelURL, configuration: config) else {
     die("cannot load model: \(modelURL.path)")
 }
+
 FileHandle.standardError.write("model inputs: \(model.modelDescription.inputDescriptionsByName.keys.sorted())\n".data(using: .utf8)!)
 FileHandle.standardError.write("model outputs: \(model.modelDescription.outputDescriptionsByName.keys.sorted())\n".data(using: .utf8)!)
 
 let input = try! MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(pixelBuffer: pixelBuffer)])
 guard let out = try? model.prediction(from: input) else { die("prediction failed") }
 guard let region = out.featureValue(for: "region_score")?.multiArrayValue,
-      let affinity = out.featureValue(for: "affinity_score")?.multiArrayValue else {
+      let affinity = out.featureValue(for: "affinity_score")?.multiArrayValue
+else {
     die("missing region/affinity outputs; got \(out.featureNames)")
 }
 
@@ -109,16 +116,22 @@ func flatFloats(_ arr: MLMultiArray, _ count: Int) -> [Float] {
         return Array(UnsafeBufferPointer(start: p, count: count))
     }
     var o = [Float](repeating: 0, count: count)
-    for i in 0..<count { o[i] = arr[i].floatValue }
+    for i in 0..<count {
+        o[i] = arr[i].floatValue
+    }
     return o
 }
+
 let regionBuf = flatFloats(region, h * w)
 let affinityBuf = flatFloats(affinity, h * w)
 
 // MARK: - extractBoxes (port of craft_postprocess.get_boxes).
+
 func extractBoxes(region: [Float], affinity: [Float], w: Int, h: Int) -> [CGRect] {
     var mask = [Bool](repeating: false, count: w * h)
-    for i in 0..<(w * h) { mask[i] = region[i] > lowText || affinity[i] > linkThreshold }
+    for i in 0..<(w * h) {
+        mask[i] = region[i] > lowText || affinity[i] > linkThreshold
+    }
     var labels = [Int](repeating: 0, count: w * h)
     var boxes: [CGRect] = []
     var current = 0
@@ -136,10 +149,10 @@ func extractBoxes(region: [Float], affinity: [Float], w: Int, h: Int) -> [CGRect
             if x < minX { minX = x }; if x > maxX { maxX = x }
             if y < minY { minY = y }; if y > maxY { maxY = y }
             if region[p] > maxRegion { maxRegion = region[p] }
-            if x > 0     { let n = p - 1; if mask[n] && labels[n] == 0 { labels[n] = current; stack.append(n) } }
-            if x < w - 1 { let n = p + 1; if mask[n] && labels[n] == 0 { labels[n] = current; stack.append(n) } }
-            if y > 0     { let n = p - w; if mask[n] && labels[n] == 0 { labels[n] = current; stack.append(n) } }
-            if y < h - 1 { let n = p + w; if mask[n] && labels[n] == 0 { labels[n] = current; stack.append(n) } }
+            if x > 0 { let n = p - 1; if mask[n], labels[n] == 0 { labels[n] = current; stack.append(n) } }
+            if x < w - 1 { let n = p + 1; if mask[n], labels[n] == 0 { labels[n] = current; stack.append(n) } }
+            if y > 0 { let n = p - w; if mask[n], labels[n] == 0 { labels[n] = current; stack.append(n) } }
+            if y < h - 1 { let n = p + w; if mask[n], labels[n] == 0 { labels[n] = current; stack.append(n) } }
         }
         if area < minArea { continue }
         if maxRegion < textThreshold { continue }
@@ -158,7 +171,7 @@ func extractBoxes(region: [Float], affinity: [Float], w: Int, h: Int) -> [CGRect
 }
 
 let rawBoxes = extractBoxes(region: regionBuf, affinity: affinityBuf, w: w, h: h)
-let f = 2 / scale   // score-map pixel -> input pixel (x2), then undo the fit scale.
+let f = 2 / scale // score-map pixel -> input pixel (x2), then undo the fit scale.
 let bounds = CGRect(x: 0, y: 0, width: imgW, height: imgH)
 let mapped = rawBoxes.compactMap { r -> CGRect? in
     let rect = CGRect(x: r.minX * f, y: r.minY * f, width: r.width * f, height: r.height * f).intersection(bounds)
@@ -169,25 +182,34 @@ print("score map \(w)x\(h) | raw components: \(rawBoxes.count) | mapped boxes: \
 for (i, r) in mapped.prefix(40).enumerated() {
     print(String(format: "  [%2d] x=%.0f y=%.0f w=%.0f h=%.0f", i, r.minX, r.minY, r.width, r.height))
 }
+
 if mapped.count > 40 { print("  ... and \(mapped.count - 40) more") }
 
 // MARK: - Draw red boxes onto the upright image and save a PNG.
+
 let cs = CGColorSpaceCreateDeviceRGB()
 guard let octx = CGContext(data: nil, width: imgW, height: imgH,
                            bitsPerComponent: 8, bytesPerRow: 0, space: cs,
-                           bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                           bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+else {
     die("overlay context failed")
 }
-octx.translateBy(x: 0, y: CGFloat(imgH))   // flip to top-left origin so box coords match.
+
+octx.translateBy(x: 0, y: CGFloat(imgH)) // flip to top-left origin so box coords match.
 octx.scaleBy(x: 1, y: -1)
 octx.draw(image, in: bounds)
 octx.setStrokeColor(red: 1, green: 0, blue: 0, alpha: 1)
 octx.setLineWidth(max(2, CGFloat(imgW) / 300))
-for r in mapped { octx.stroke(r) }
+for r in mapped {
+    octx.stroke(r)
+}
+
 guard let overlay = octx.makeImage(),
-      let dest = CGImageDestinationCreateWithURL(outURL as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+      let dest = CGImageDestinationCreateWithURL(outURL as CFURL, UTType.png.identifier as CFString, 1, nil)
+else {
     die("overlay image/dest failed")
 }
+
 CGImageDestinationAddImage(dest, overlay, nil)
 guard CGImageDestinationFinalize(dest) else { die("png write failed") }
 print("overlay -> \(outURL.path)")

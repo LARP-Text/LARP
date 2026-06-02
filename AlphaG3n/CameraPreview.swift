@@ -19,7 +19,7 @@ struct CameraPreview: UIViewRepresentable {
     /// device orientation the same way the captured photo does.
     var rotationAngle: CGFloat = 90
 
-    func makeUIView(context: Context) -> PreviewView {
+    func makeUIView(context _: Context) -> PreviewView {
         let view = PreviewView()
         view.videoPreviewLayer.session = session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
@@ -27,7 +27,7 @@ struct CameraPreview: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: PreviewView, context: Context) {
+    func updateUIView(_ uiView: PreviewView, context _: Context) {
         uiView.apply(detections: detections)
         uiView.apply(rotationAngle: rotationAngle)
     }
@@ -36,7 +36,9 @@ struct CameraPreview: UIViewRepresentable {
     /// matches the view's bounds with no manual layout. A `CAShapeLayer` sits
     /// on top to draw the saliency boxes.
     final class PreviewView: UIView {
-        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        override class var layerClass: AnyClass {
+            AVCaptureVideoPreviewLayer.self
+        }
 
         var videoPreviewLayer: AVCaptureVideoPreviewLayer {
             layer as! AVCaptureVideoPreviewLayer
@@ -62,6 +64,7 @@ struct CameraPreview: UIViewRepresentable {
             l.lineJoin = .miter
             return l
         }()
+
         /// Translucent accent fill of the region the brackets frame, sitting
         /// beneath `highlightLayer`. Same orange as the brackets, at low alpha.
         private let fillLayer: CAShapeLayer = {
@@ -70,15 +73,19 @@ struct CameraPreview: UIViewRepresentable {
             l.fillColor = UIColor(LarpTheme.orange).withAlphaComponent(0.4).cgColor
             return l
         }()
+
         private var lastDetections: [TrackedBox] = []
 
         override init(frame: CGRect) {
             super.init(frame: frame)
-            layer.addSublayer(fillLayer)      // beneath the brackets
+            layer.addSublayer(fillLayer) // beneath the brackets
             layer.addSublayer(highlightLayer)
         }
 
-        required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+        @available(*, unavailable)
+        required init?(coder _: NSCoder) {
+            fatalError("init(coder:) not used")
+        }
 
         override func layoutSubviews() {
             super.layoutSubviews()
@@ -172,7 +179,9 @@ struct CameraPreview: UIViewRepresentable {
             let path = UIBezierPath()
             guard points.count == 4 else { return path }
             path.move(to: points[0])
-            for i in 1..<4 { path.addLine(to: points[i]) }
+            for i in 1..<4 {
+                path.addLine(to: points[i])
+            }
             path.close()
             return path
         }

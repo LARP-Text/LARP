@@ -8,7 +8,7 @@
 import Foundation
 
 #if canImport(FoundationNetworking)
-import FoundationNetworking
+    import FoundationNetworking
 #endif
 
 // MARK: - Public types
@@ -19,7 +19,7 @@ public enum JinaTokenizer: String, Sendable, Codable {
     case p50kBase = "p50k_base"
     case r50kBase = "r50k_base"
     case p50kEdit = "p50k_edit"
-    case gpt2 = "gpt2"
+    case gpt2
 }
 
 public struct SegmentRequestOptions: Sendable {
@@ -78,7 +78,7 @@ public enum JinaSegmenterError: Error, CustomStringConvertible {
         switch self {
         case .emptyContent:
             return "Segmenter content must not be empty"
-        case .requestFailed(let status, let body):
+        case let .requestFailed(status, body):
             return "Segment request failed (HTTP \(status)): \(body)"
         case .invalidResponseBody:
             return "Response body could not be decoded"
@@ -90,7 +90,7 @@ public enum JinaSegmenterError: Error, CustomStringConvertible {
 
 // MARK: - Wire types
 
-nonisolated private struct SegmentRequestPayload: Encodable {
+private nonisolated struct SegmentRequestPayload: Encodable {
     let content: String
     let tokenizer: String
     let returnTokens: Bool
@@ -110,7 +110,7 @@ nonisolated private struct SegmentRequestPayload: Encodable {
     }
 }
 
-nonisolated private struct SegmentResponse: Decodable {
+private nonisolated struct SegmentResponse: Decodable {
     let numTokens: Int?
     let tokenizer: String?
     let usage: Usage?
@@ -133,8 +133,8 @@ nonisolated private struct SegmentResponse: Decodable {
         case tokens
     }
 
-    // Jina returns each token as a heterogeneous array: [string, [int, ...], ...].
-    // We only care about the leading string and the integer-id array.
+    /// Jina returns each token as a heterogeneous array: [string, [int, ...], ...].
+    /// We only care about the leading string and the integer-id array.
     enum TokenEntry: Decodable {
         case string(String)
         case ids([Int])
@@ -156,7 +156,6 @@ nonisolated private struct SegmentResponse: Decodable {
 // MARK: - Client
 
 public actor JinaSegmenterClient {
-
     public struct Configuration: Sendable {
         public var endpoint: URL
         public var token: String
@@ -178,17 +177,12 @@ public actor JinaSegmenterClient {
 
     private let config: Configuration
     private let session: URLSession
-    private let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        return e
-    }()
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        return d
-    }()
+    private let encoder = JSONEncoder()
+
+    private let decoder = JSONDecoder()
 
     public init(configuration: Configuration, session: URLSession = .shared) {
-        self.config = configuration
+        config = configuration
         self.session = session
     }
 
@@ -254,7 +248,8 @@ public actor JinaSegmenterClient {
         let positions = response.chunkPositions ?? []
 
         if !chunkStrings.isEmpty, !positions.isEmpty,
-           chunkStrings.count != positions.count {
+           chunkStrings.count != positions.count
+        {
             throw JinaSegmenterError.malformedChunkPositions
         }
 
@@ -277,9 +272,9 @@ public actor JinaSegmenterClient {
             var ids: [Int] = []
             for entry in entries {
                 switch entry {
-                case .string(let s) where text == nil:
+                case let .string(s) where text == nil:
                     text = s
-                case .ids(let arr) where ids.isEmpty:
+                case let .ids(arr) where ids.isEmpty:
                     ids = arr
                 default:
                     continue

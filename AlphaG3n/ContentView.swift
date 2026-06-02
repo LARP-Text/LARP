@@ -75,15 +75,15 @@ struct ContentView: View {
         switch camera.captureState {
         case .idle:
             CameraControls(onClose: goHome, onCapture: camera.capturePhoto)
-        case .processing(let image):
+        case let .processing(image):
             ProcessingOverlay(image: image, onCancel: camera.cancelProcessing)
-        case .result(let document, let qrCodes):
+        case let .result(document, qrCodes):
             AnalysisView(
                 document: document,
                 qrCodes: qrCodes,
                 onRecapture: camera.resetCaptureState
             )
-        case .failed(let message):
+        case let .failed(message):
             FailureOverlay(message: message, onDismiss: camera.resetCaptureState)
         }
     }
@@ -101,7 +101,7 @@ private struct CameraControls: View {
 
     var body: some View {
         ZStack {
-            //CameraReticle()
+            // CameraReticle()
 
             VStack(spacing: 0) {
                 HStack {
@@ -138,9 +138,9 @@ private struct CameraControls: View {
 private struct CameraReticle: View {
     @State private var breathe = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Gate looping motion on VoiceOver too, not just Reduce Motion: a
-    // repeatForever animation never lets the view tree settle, which makes
-    // VoiceOver re-announce the focused element on a loop (see HomeView).
+    /// Gate looping motion on VoiceOver too, not just Reduce Motion: a
+    /// repeatForever animation never lets the view tree settle, which makes
+    /// VoiceOver re-announce the focused element on a loop (see HomeView).
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
     var body: some View {
@@ -194,10 +194,10 @@ private struct ProcessingOverlay: View {
     let image: UIImage?
     let onCancel: () -> Void
 
-    // Reduce Motion is the only switch now: it parks the scan line and freezes
-    // the caption dots. VoiceOver no longer gates them — they're driven by Core
-    // Animation (see `ProcessingScanLine`), which keeps the perpetual motion off
-    // the SwiftUI/accessibility tree so it can't disturb VoiceOver.
+    /// Reduce Motion is the only switch now: it parks the scan line and freezes
+    /// the caption dots. VoiceOver no longer gates them — they're driven by Core
+    /// Animation (see `ProcessingScanLine`), which keeps the perpetual motion off
+    /// the SwiftUI/accessibility tree so it can't disturb VoiceOver.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -272,7 +272,7 @@ private struct ProcessingScanLine: UIViewRepresentable {
     /// False under Reduce Motion → the band parks off-screen (no sweep).
     var animated: Bool
 
-    func makeUIView(context: Context) -> ScanLineUIView {
+    func makeUIView(context _: Context) -> ScanLineUIView {
         let view = ScanLineUIView()
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = false
@@ -280,7 +280,7 @@ private struct ProcessingScanLine: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: ScanLineUIView, context: Context) {
+    func updateUIView(_ uiView: ScanLineUIView, context _: Context) {
         uiView.animating = animated
     }
 }
@@ -305,7 +305,7 @@ private final class ScanLineUIView: UIView {
             orange.withAlphaComponent(0.35).cgColor,
             UIColor.white.withAlphaComponent(0.55).cgColor,
             orange.withAlphaComponent(0.35).cgColor,
-            orange.withAlphaComponent(0).cgColor,
+            orange.withAlphaComponent(0).cgColor
         ]
         band.locations = [0, 0.4, 0.5, 0.6, 1]
         band.startPoint = CGPoint(x: 0.5, y: 0)
@@ -314,7 +314,10 @@ private final class ScanLineUIView: UIView {
         layer.addSublayer(band)
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -353,7 +356,7 @@ private struct ProcessingDot: UIViewRepresentable {
     /// False under Reduce Motion → the dot holds steady at full opacity.
     var animated: Bool
 
-    func makeUIView(context: Context) -> DotUIView {
+    func makeUIView(context _: Context) -> DotUIView {
         let view = DotUIView()
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = false
@@ -361,7 +364,7 @@ private struct ProcessingDot: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: DotUIView, context: Context) {
+    func updateUIView(_ uiView: DotUIView, context _: Context) {
         uiView.animating = animated
     }
 }
@@ -380,7 +383,10 @@ private final class DotUIView: UIView {
         backgroundColor = UIColor(red: 1, green: 177 / 255, blue: 74 / 255, alpha: 1) // #FFB14A
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     private func reseat() {
         layer.removeAnimation(forKey: Self.key)

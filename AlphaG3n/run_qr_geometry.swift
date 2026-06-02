@@ -12,7 +12,6 @@ import CoreGraphics
 
 @main
 struct QRGeometryTest {
-
     static var failures = 0
 
     static func expectWeb(_ payload: String, scheme: String, host: String, _ name: String) {
@@ -21,7 +20,7 @@ struct QRGeometryTest {
             print("  ✗ \(name)\n      expected a \(scheme) URL, got nil")
             return
         }
-        if url.scheme?.lowercased() == scheme && url.host == host {
+        if url.scheme?.lowercased() == scheme, url.host == host {
             print("  ✓ \(name)")
         } else {
             failures += 1
@@ -41,7 +40,8 @@ struct QRGeometryTest {
     static func expectRect(_ actual: CGRect, _ expected: CGRect, _ name: String) {
         let e: CGFloat = 0.001
         if abs(actual.minX - expected.minX) < e, abs(actual.minY - expected.minY) < e,
-           abs(actual.width - expected.width) < e, abs(actual.height - expected.height) < e {
+           abs(actual.width - expected.width) < e, abs(actual.height - expected.height) < e
+        {
             print("  ✓ \(name)")
         } else {
             failures += 1

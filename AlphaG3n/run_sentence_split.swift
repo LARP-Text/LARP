@@ -11,7 +11,6 @@ import Foundation
 
 @main
 struct SentenceSplitterTest {
-
     static var failures = 0
 
     static func expect(_ actual: [String], _ expected: [String], _ name: String) {
@@ -37,13 +36,15 @@ struct SentenceSplitterTest {
         expect(
             SentenceSplitter.sentences(in: "It was a dark night. The wind howled."),
             ["It was a dark night.", "The wind howled."],
-            "two plain sentences")
+            "two plain sentences"
+        )
 
         // 2. ? and ! count as sentence terminators too.
         expectCount(
             SentenceSplitter.sentences(in: "Really? Yes! Okay then."),
             3,
-            "question + exclamation + statement -> 3")
+            "question + exclamation + statement -> 3"
+        )
 
         // 3. A single sentence stays whole and is NOT drill-in eligible.
         let single = SentenceSplitter.sentences(in: "Just one sentence here.")
@@ -63,20 +64,23 @@ struct SentenceSplitterTest {
         expectCount(
             SentenceSplitter.sentences(in: "Dr. Smith arrived early. He waited inside."),
             2,
-            "abbreviation does not over-split")
+            "abbreviation does not over-split"
+        )
 
         // 6. Decimals must NOT cause a false split ("3.14" stays one number).
         expectCount(
             SentenceSplitter.sentences(in: "Pi is about 3.14 in value. That fact helps."),
             2,
-            "decimal does not over-split")
+            "decimal does not over-split"
+        )
 
         // 7. OCR text often carries newlines between lines of one paragraph;
         //    they shouldn't fabricate extra sentences beyond the real boundaries.
         expectCount(
             SentenceSplitter.sentences(in: "First sentence ends here.\nSecond sentence follows."),
             2,
-            "newline between sentences -> 2")
+            "newline between sentences -> 2"
+        )
 
         if failures == 0 {
             print("\nall sentence-split checks passed")

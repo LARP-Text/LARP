@@ -10,14 +10,28 @@
 import Foundation
 
 enum Secrets {
-    static var jinaAPIKey: String? { value(for: "JINA_API_KEY") }
-    static var paddleAPIKey: String? { value(for: "PADDLE_API_KEY") }
+    static var jinaAPIKey: String? {
+        value(for: "JINA_API_KEY")
+    }
+
+    static var paddleAPIKey: String? {
+        value(for: "PADDLE_API_KEY")
+    }
+
     /// OpenAI API key for the per-crop vision OCR pass (see `OpenAIClient`).
-    static var openAIAPIKey: String? { value(for: "OPENAI_API_KEY") }
+    static var openAIAPIKey: String? {
+        value(for: "OPENAI_API_KEY")
+    }
+
     /// Modal PaddleOCR-VL endpoint URL — the camera OCR path requires it.
-    static var modalOCRURL: String? { value(for: "MODAL_OCR_URL") }
+    static var modalOCRURL: String? {
+        value(for: "MODAL_OCR_URL")
+    }
+
     /// Optional bearer token if the Modal endpoint is behind auth; `nil` ⇒ unauthenticated.
-    static var modalOCRToken: String? { value(for: "MODAL_OCR_TOKEN") }
+    static var modalOCRToken: String? {
+        value(for: "MODAL_OCR_TOKEN")
+    }
 
     /// Returns the trimmed Info.plist value, or `nil` if the key is missing,
     /// empty, or still the unresolved `$(VAR)` placeholder (which happens when
@@ -35,7 +49,9 @@ enum Secrets {
 // MARK: - Client defaults
 
 extension PaddleOCRClient {
-    static var isAPIKeyConfigured: Bool { Secrets.paddleAPIKey != nil }
+    static var isAPIKeyConfigured: Bool {
+        Secrets.paddleAPIKey != nil
+    }
 
     /// Builds a client using the token baked into the app bundle.
     /// Returns a client with an empty token if the key is missing — callers
@@ -46,7 +62,9 @@ extension PaddleOCRClient {
 }
 
 extension JinaSegmenterClient {
-    static var isAPIKeyConfigured: Bool { Secrets.jinaAPIKey != nil }
+    static var isAPIKeyConfigured: Bool {
+        Secrets.jinaAPIKey != nil
+    }
 
     /// Builds a client using the token baked into the app bundle.
     /// Returns a client with an empty token if the key is missing — callers

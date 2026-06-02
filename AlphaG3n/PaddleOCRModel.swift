@@ -8,7 +8,7 @@
 import Foundation
 
 #if canImport(FoundationNetworking)
-import FoundationNetworking
+    import FoundationNetworking
 #endif
 
 // MARK: - Public types
@@ -51,7 +51,7 @@ public struct OptionalPayload: Codable, Sendable {
     public var layoutNms: Bool
     public var restructurePages: Bool
 
-    nonisolated public init(
+    public nonisolated init(
         markdownIgnoreLabels: [String] = [
             "header",
             "header_image",
@@ -141,83 +141,84 @@ public enum PaddleOCRError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .fileNotFound(let url):
+        case let .fileNotFound(url):
             return "File not found at \(url.path)"
-        case .submissionFailed(let status, let body):
+        case let .submissionFailed(status, body):
             return "Job submission failed (HTTP \(status)): \(body)"
-        case .statusRequestFailed(let status, let body):
+        case let .statusRequestFailed(status, body):
             return "Job status request failed (HTTP \(status)): \(body)"
-        case .jobFailed(let message):
+        case let .jobFailed(message):
             return "Job failed: \(message)"
         case .missingResultURL:
             return "Job completed but no result URL was returned"
         case .invalidResponseBody:
             return "Response body could not be decoded"
-        case .imageDownloadFailed(let url, let status):
+        case let .imageDownloadFailed(url, status):
             return "Image download failed for \(url.absoluteString) (HTTP \(status))"
         }
     }
 }
 
-nonisolated private struct JobSubmissionURLPayload: Encodable {
+private nonisolated struct JobSubmissionURLPayload: Encodable {
     let fileUrl: String
     let model: String
     let optionalPayload: OptionalPayload
 }
 
-nonisolated private struct JobSubmissionResponse: Decodable {
+private nonisolated struct JobSubmissionResponse: Decodable {
     struct DataPayload: Decodable { let jobId: String }
     let data: DataPayload
 }
 
-nonisolated private enum JobState: String, Decodable {
+private nonisolated enum JobState: String, Decodable {
     case pending, running, done, failed
 }
 
-nonisolated private struct ExtractProgress: Decodable {
+private nonisolated struct ExtractProgress: Decodable {
     let totalPages: Int?
     let extractedPages: Int?
     let startTime: String?
     let endTime: String?
 }
 
-nonisolated private struct ResultURL: Decodable {
+private nonisolated struct ResultURL: Decodable {
     let jsonUrl: String?
 }
 
-nonisolated private struct JobStatusResponse: Decodable {
+private nonisolated struct JobStatusResponse: Decodable {
     struct DataPayload: Decodable {
         let state: JobState
         let extractProgress: ExtractProgress?
         let resultUrl: ResultURL?
         let errorMsg: String?
     }
+
     let data: DataPayload
 }
 
-nonisolated private struct LayoutResultLine: Decodable {
+private nonisolated struct LayoutResultLine: Decodable {
     let result: LayoutResult
 }
 
-nonisolated private struct LayoutResult: Decodable {
+private nonisolated struct LayoutResult: Decodable {
     let layoutParsingResults: [LayoutParsingResult]
     let preprocessedImages: [String]?
 }
 
-nonisolated private struct LayoutParsingResult: Decodable {
+private nonisolated struct LayoutParsingResult: Decodable {
     let prunedResult: VirtualDocument.PrunedResult?
     let markdown: MarkdownPayload
     let outputImages: [String: String]?
 }
 
-nonisolated private struct MarkdownPayload: Decodable {
+private nonisolated struct MarkdownPayload: Decodable {
     let text: String
     let images: [String: String]
 }
 
 // MARK: - MIME helpers
 
-nonisolated private func mimeType(forPathExtension ext: String) -> String {
+private nonisolated func mimeType(forPathExtension ext: String) -> String {
     switch ext.lowercased() {
     case "pdf": return "application/pdf"
     case "png": return "image/png"
@@ -234,7 +235,7 @@ nonisolated private func mimeType(forPathExtension ext: String) -> String {
 /// Inline multipart body builder. Pre-sizes the buffer to avoid the resize
 /// thrash that a naive `body.append(...)` loop produces on multi-MB image
 /// uploads — every doubling memcpy is wall-time during submit.
-nonisolated private func buildMultipartBody(
+private nonisolated func buildMultipartBody(
     boundary: String,
     fields: [(name: String, value: String)],
     file: (name: String, filename: String, mimeType: String, data: Data)
@@ -286,7 +287,6 @@ private extension Data {
 /// executor and forced every callsite to pay an executor-hop. Concurrent
 /// callers now overlap their work freely.
 public final class PaddleOCRClient: @unchecked Sendable {
-
     public struct Configuration: Sendable {
         public var jobURL: URL
         public var token: String
@@ -335,7 +335,7 @@ public final class PaddleOCRClient: @unchecked Sendable {
     private let decoder = JSONDecoder()
 
     public init(configuration: Configuration, session: URLSession? = nil) {
-        self.config = configuration
+        config = configuration
         self.session = session ?? Self.makeDefaultSession()
     }
 
@@ -568,10 +568,10 @@ public final class PaddleOCRClient: @unchecked Sendable {
         // a polling cadence and avoids overflowing `Int64` on long delays.
         let currentNs =
             current.components.seconds * 1_000_000_000
-            + current.components.attoseconds / 1_000_000_000
+                + current.components.attoseconds / 1_000_000_000
         let maxNs =
             max.components.seconds * 1_000_000_000
-            + max.components.attoseconds / 1_000_000_000
+                + max.components.attoseconds / 1_000_000_000
         let nextNs = Int64(Double(currentNs) * factor)
         let cappedNs = Swift.min(nextNs, maxNs)
         return .nanoseconds(cappedNs)
@@ -607,7 +607,7 @@ public final class PaddleOCRClient: @unchecked Sendable {
             for (localIndex, parsing) in parsed.result.layoutParsingResults.enumerated() {
                 let preprocessedURLString: String? =
                     (preprocessed != nil && localIndex < preprocessed!.count)
-                    ? preprocessed![localIndex] : nil
+                        ? preprocessed![localIndex] : nil
                 let page = try await writePage(
                     pageIndex: pageIndex,
                     parsing: parsing,
@@ -631,12 +631,12 @@ public final class PaddleOCRClient: @unchecked Sendable {
         let mdURL = outputDirectory.appendingPathComponent("doc_\(pageIndex).md")
         try parsing.markdown.text.write(to: mdURL, atomically: true, encoding: .utf8)
 
-        let inlineSpecs: [(String, URL, URL)] = parsing.markdown.images.compactMap { (relativePath, urlString) in
+        let inlineSpecs: [(String, URL, URL)] = parsing.markdown.images.compactMap { relativePath, urlString in
             guard let remote = URL(string: urlString) else { return nil }
             return (relativePath, remote, outputDirectory.appendingPathComponent(relativePath))
         }
 
-        let outputSpecs: [(String, URL, URL)] = (parsing.outputImages ?? [:]).compactMap { (name, urlString) in
+        let outputSpecs: [(String, URL, URL)] = (parsing.outputImages ?? [:]).compactMap { name, urlString in
             guard let remote = URL(string: urlString) else { return nil }
             return (name, remote, outputDirectory.appendingPathComponent("\(name)_\(pageIndex).jpg"))
         }
@@ -659,7 +659,7 @@ public final class PaddleOCRClient: @unchecked Sendable {
         async let outputResults = downloadConcurrently(specs: outputSpecs)
         async let preprocessedResults = downloadConcurrently(specs: preprocessedSpecs)
 
-        let (inline, outputs, preprocessed) = try await (inlineResults, outputResults, preprocessedResults)
+        let (inline, outputs, preprocessed) = try await(inlineResults, outputResults, preprocessedResults)
 
         let blocks: [TextBlock] = (parsing.prunedResult?.parsingResList ?? []).map { raw in
             TextBlock(label: raw.blockLabel, bbox: raw.blockBbox, content: raw.blockContent)

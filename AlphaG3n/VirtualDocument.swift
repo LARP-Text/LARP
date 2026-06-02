@@ -20,13 +20,14 @@ public struct VirtualDocument: @unchecked Sendable {
         self.groups = groups
     }
 
-    public var parts: [Part] { groups.flatMap(\.parts) }
+    public var parts: [Part] {
+        groups.flatMap(\.parts)
+    }
 }
 
 // MARK: - Nested types
 
 public extension VirtualDocument {
-
     enum BlockLabel: String, Sendable, Hashable {
         case docTitle = "doc_title"
         case paragraphTitle = "paragraph_title"
@@ -67,44 +68,44 @@ public extension VirtualDocument {
 
         public var id: Int {
             switch self {
-            case .text(let p):  return p.id
-            case .image(let p): return p.id
+            case let .text(p): return p.id
+            case let .image(p): return p.id
             }
         }
 
         public var label: BlockLabel {
             switch self {
-            case .text(let p):  return p.label
-            case .image(let p): return p.label
+            case let .text(p): return p.label
+            case let .image(p): return p.label
             }
         }
 
         public var bbox: CGRect {
             switch self {
-            case .text(let p):  return p.bbox
-            case .image(let p): return p.bbox
+            case let .text(p): return p.bbox
+            case let .image(p): return p.bbox
             }
         }
 
         public var polygon: [CGPoint] {
             switch self {
-            case .text(let p):  return p.polygon
-            case .image(let p): return p.polygon
+            case let .text(p): return p.polygon
+            case let .image(p): return p.polygon
             }
         }
 
         public var order: Int? {
             switch self {
-            case .text(let p):  return p.order
-            case .image(let p): return p.order
+            case let .text(p): return p.order
+            case let .image(p): return p.order
             }
         }
 
         /// True only for CRAFT-augmented text parts; the renderer draws these red.
         public var isFromCraft: Bool {
             switch self {
-            case .text(let p):  return p.isFromCraft
-            case .image:        return false
+            case let .text(p): return p.isFromCraft
+            case .image: return false
             }
         }
 
@@ -114,8 +115,8 @@ public extension VirtualDocument {
         /// via VoiceOver, not painted onto the overlay.
         public var content: String {
             switch self {
-            case .text(let p):  return p.content
-            case .image(let p): return p.description
+            case let .text(p): return p.content
+            case let .image(p): return p.description
             }
         }
     }
@@ -188,7 +189,6 @@ public extension VirtualDocument {
 // MARK: - Decoder for the API's prunedResult payload
 
 public extension VirtualDocument {
-
     struct PrunedResult: Decodable, Sendable {
         public let width: Int
         public let height: Int
@@ -207,7 +207,7 @@ public extension VirtualDocument {
             /// decoded from the OCR API. Deliberately absent from `CodingKeys`,
             /// so the API decoder ignores it and it defaults to `false`; only
             /// `LayoutAugmentation.extraBlocks` sets it `true`.
-            public var isFromCraft: Bool = false
+            public var isFromCraft = false
 
             /// Concise figure caption from `OpenAIClient.describeFigures`, spliced
             /// in by the OCR pass for graphics blocks (see `VirtualDocument.figureLabels`).
@@ -292,7 +292,6 @@ public extension VirtualDocument {
 // MARK: - Factory
 
 public extension VirtualDocument {
-
     static let imageLabels: Set<BlockLabel> = [.image, .footerImage, .headerImage]
 
     /// Graphics regions captioned by a concise figure description rather than
@@ -396,7 +395,6 @@ private extension CGRect {
 // MARK: - Rendering
 
 public extension VirtualDocument {
-
     /// Sendable color triple. UIColor isn't Sendable under strict concurrency,
     /// so the palette is stored as RGBA and materialised to UIColor at draw time.
     struct RGBA: Sendable, Hashable {
@@ -483,7 +481,7 @@ public extension VirtualDocument {
         format.scale = image.scale
         format.opaque = true
 
-        let scaleX = pageSize.width  > 0 ? canvasSize.width  / pageSize.width  : 1
+        let scaleX = pageSize.width > 0 ? canvasSize.width / pageSize.width : 1
         let scaleY = pageSize.height > 0 ? canvasSize.height / pageSize.height : 1
 
         let rectsByID = Dictionary(uniqueKeysWithValues: parts.map {
@@ -525,7 +523,7 @@ public extension VirtualDocument {
                             let boxRect = CGRect(
                                 x: pageRect.minX * scaleX,
                                 y: pageRect.minY * scaleY,
-                                width: pageRect.width  * scaleX,
+                                width: pageRect.width * scaleX,
                                 height: pageRect.height * scaleY
                             )
                             Self.drawCenteredText(text, in: boxRect, style: style)
@@ -546,7 +544,8 @@ public extension VirtualDocument {
             let ys = part.polygon.map(\.y)
             if let minX = xs.min(), let maxX = xs.max(),
                let minY = ys.min(), let maxY = ys.max(),
-               maxX > minX, maxY > minY {
+               maxX > minX, maxY > minY
+            {
                 return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
             }
         }
@@ -573,7 +572,7 @@ public extension VirtualDocument {
             let r = CGRect(
                 x: bboxFallback.minX * scaleX,
                 y: bboxFallback.minY * scaleY,
-                width: bboxFallback.width  * scaleX,
+                width: bboxFallback.width * scaleX,
                 height: bboxFallback.height * scaleY
             )
             return UIBezierPath(roundedRect: r, cornerRadius: style.cornerRadius)
@@ -581,7 +580,9 @@ public extension VirtualDocument {
         let path = UIBezierPath()
         let scaled = simplified.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) }
         path.move(to: scaled[0])
-        for p in scaled.dropFirst() { path.addLine(to: p) }
+        for p in scaled.dropFirst() {
+            path.addLine(to: p)
+        }
         path.close()
         return path
     }
@@ -689,8 +690,7 @@ public extension VirtualDocument {
         let fSimp = douglasPeucker(forward, epsilon: epsilon)
         let bSimp = douglasPeucker(backward, epsilon: epsilon)
         // Both halves share the anchors; drop the duplicated endpoint when stitching.
-        let stitched = fSimp + bSimp.dropFirst().dropLast()
-        return stitched
+        return fSimp + bSimp.dropFirst().dropLast()
     }
 
     private static func douglasPeucker(_ points: [CGPoint], epsilon: CGFloat) -> [CGPoint] {
@@ -738,23 +738,23 @@ public extension VirtualDocument {
     /// distinct. Exhaustive over `BlockLabel`, so a new case forces a choice here.
     static func color(for label: BlockLabel) -> RGBA {
         switch label {
-        case .text:           return RGBA(r: 0.20, g: 0.48, b: 0.95) // blue
-        case .docTitle:       return RGBA(r: 0.36, g: 0.20, b: 0.80) // indigo
+        case .text: return RGBA(r: 0.20, g: 0.48, b: 0.95) // blue
+        case .docTitle: return RGBA(r: 0.36, g: 0.20, b: 0.80) // indigo
         case .paragraphTitle: return RGBA(r: 0.60, g: 0.30, b: 0.90) // violet
-        case .header:         return RGBA(r: 0.20, g: 0.70, b: 0.95) // sky
-        case .footer:         return RGBA(r: 0.40, g: 0.55, b: 0.72) // steel
-        case .footnote:       return RGBA(r: 0.10, g: 0.62, b: 0.60) // teal
+        case .header: return RGBA(r: 0.20, g: 0.70, b: 0.95) // sky
+        case .footer: return RGBA(r: 0.40, g: 0.55, b: 0.72) // steel
+        case .footnote: return RGBA(r: 0.10, g: 0.62, b: 0.60) // teal
         case .visionFootnote: return RGBA(r: 0.22, g: 0.75, b: 0.52) // mint
-        case .asideText:      return RGBA(r: 0.15, g: 0.78, b: 0.82) // cyan
-        case .number:         return RGBA(r: 0.50, g: 0.55, b: 0.62) // slate
-        case .table:          return RGBA(r: 0.20, g: 0.70, b: 0.30) // green
-        case .formula:        return RGBA(r: 0.62, g: 0.70, b: 0.18) // olive
-        case .image:          return RGBA(r: 0.62, g: 0.25, b: 0.72) // purple
-        case .headerImage:    return RGBA(r: 0.85, g: 0.30, b: 0.70) // magenta
-        case .footerImage:    return RGBA(r: 0.95, g: 0.45, b: 0.65) // pink
-        case .chart:          return RGBA(r: 0.95, g: 0.72, b: 0.15) // gold
-        case .seal:           return RGBA(r: 0.95, g: 0.55, b: 0.15) // orange
-        case .unknown:        return RGBA(r: 0.55, g: 0.55, b: 0.55) // gray
+        case .asideText: return RGBA(r: 0.15, g: 0.78, b: 0.82) // cyan
+        case .number: return RGBA(r: 0.50, g: 0.55, b: 0.62) // slate
+        case .table: return RGBA(r: 0.20, g: 0.70, b: 0.30) // green
+        case .formula: return RGBA(r: 0.62, g: 0.70, b: 0.18) // olive
+        case .image: return RGBA(r: 0.62, g: 0.25, b: 0.72) // purple
+        case .headerImage: return RGBA(r: 0.85, g: 0.30, b: 0.70) // magenta
+        case .footerImage: return RGBA(r: 0.95, g: 0.45, b: 0.65) // pink
+        case .chart: return RGBA(r: 0.95, g: 0.72, b: 0.15) // gold
+        case .seal: return RGBA(r: 0.95, g: 0.55, b: 0.15) // orange
+        case .unknown: return RGBA(r: 0.55, g: 0.55, b: 0.55) // gray
         }
     }
 
@@ -781,7 +781,7 @@ public extension VirtualDocument {
         ]
 
         // Chip hugs the text, clamped to the available area, centered in the box.
-        let chipW = min(avail.width,  textSize.width  + 2 * pad)
+        let chipW = min(avail.width, textSize.width + 2 * pad)
         let chipH = min(avail.height, textSize.height + 2 * pad)
         let chipRect = CGRect(x: box.midX - chipW / 2,
                               y: box.midY - chipH / 2,

@@ -22,7 +22,7 @@ import CoreGraphics
 /// the document's page coordinate frame (top-left origin, same frame as
 /// `VirtualDocument.Part.bbox`), so the result overlay positions its tap target
 /// with the existing page→view scale.
-struct DetectedQRCode: Sendable, Identifiable, Hashable {
+struct DetectedQRCode: Identifiable, Hashable {
     let url: URL
     /// The raw decoded QR string (kept for the accessibility label / debugging).
     let payload: String
@@ -36,7 +36,6 @@ struct DetectedQRCode: Sendable, Identifiable, Hashable {
 }
 
 enum QRCodeDetector {
-
     /// Turns a QR payload into an http/https `URL`, or `nil` when it isn't a
     /// website link. Rejects other URI schemes (mailto, tel, WIFI:, ftp, …) and
     /// free text; accepts a bare domain ("example.com") by assuming https, which
@@ -48,7 +47,8 @@ enum QRCodeDetector {
         // An explicit URI scheme (letter then letters/digits/+-. up to ':').
         // Only http/https survive; everything else is a non-web QR.
         if let schemeRange = trimmed.range(of: "^[A-Za-z][A-Za-z0-9+.\\-]*:",
-                                           options: .regularExpression) {
+                                           options: .regularExpression)
+        {
             let scheme = trimmed[schemeRange].dropLast().lowercased()
             guard scheme == "http" || scheme == "https" else { return nil }
             guard let url = URL(string: trimmed), url.host != nil else { return nil }
@@ -78,60 +78,59 @@ enum QRCodeDetector {
 }
 
 #if canImport(UIKit)
-import UIKit
-import Vision
+    import UIKit
+    import Vision
 
-extension QRCodeDetector {
+    extension QRCodeDetector {
+        /// Runs Vision's QR detector over `image` (the OCR render source, upright and
+        /// 1:1 with `pageSize`) and returns one `DetectedQRCode` per QR whose payload
+        /// is an http/https URL. On-device and synchronous — no network. QRs that
+        /// don't link to a website are dropped so the result screen never offers a
+        /// tap that leads nowhere.
+        static func detect(in image: UIImage, pageSize: CGSize) -> [DetectedQRCode] {
+            guard pageSize.width > 0, pageSize.height > 0,
+                  let cgImage = uprightCGImage(image) else { return [] }
 
-    /// Runs Vision's QR detector over `image` (the OCR render source, upright and
-    /// 1:1 with `pageSize`) and returns one `DetectedQRCode` per QR whose payload
-    /// is an http/https URL. On-device and synchronous — no network. QRs that
-    /// don't link to a website are dropped so the result screen never offers a
-    /// tap that leads nowhere.
-    static func detect(in image: UIImage, pageSize: CGSize) -> [DetectedQRCode] {
-        guard pageSize.width > 0, pageSize.height > 0,
-              let cgImage = uprightCGImage(image) else { return [] }
+            let request = VNDetectBarcodesRequest()
+            request.symbologies = [.qr]
 
-        let request = VNDetectBarcodesRequest()
-        request.symbologies = [.qr]
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                print("QRCodeDetector: Vision request failed — \(error.localizedDescription)")
+                return []
+            }
 
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        do {
-            try handler.perform([request])
-        } catch {
-            print("QRCodeDetector: Vision request failed — \(error.localizedDescription)")
-            return []
+            var seen = Set<String>()
+            var out: [DetectedQRCode] = []
+            for observation in request.results ?? [] {
+                guard let payload = observation.payloadStringValue,
+                      let url = webURL(fromPayload: payload) else { continue }
+                let qr = DetectedQRCode(
+                    url: url,
+                    payload: payload,
+                    pageRect: pageRect(fromVisionNormalized: observation.boundingBox, pageSize: pageSize)
+                )
+                // Vision can report the same QR twice on a busy frame; de-dupe by id.
+                if seen.insert(qr.id).inserted { out.append(qr) }
+            }
+            return out
         }
 
-        var seen = Set<String>()
-        var out: [DetectedQRCode] = []
-        for observation in request.results ?? [] {
-            guard let payload = observation.payloadStringValue,
-                  let url = webURL(fromPayload: payload) else { continue }
-            let qr = DetectedQRCode(
-                url: url,
-                payload: payload,
-                pageRect: pageRect(fromVisionNormalized: observation.boundingBox, pageSize: pageSize)
-            )
-            // Vision can report the same QR twice on a busy frame; de-dupe by id.
-            if seen.insert(qr.id).inserted { out.append(qr) }
+        /// The image's pixels as an upright (`.up`, scale 1) CGImage so Vision's
+        /// normalized boxes map cleanly onto the page frame. Mirrors
+        /// `BoundingBoxCropper`'s upright handling; `renderSource` already satisfies
+        /// the fast path, but redrawing keeps a future non-upright source aligned.
+        private static func uprightCGImage(_ image: UIImage) -> CGImage? {
+            if image.imageOrientation == .up, image.scale == 1 { return image.cgImage }
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+            return renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: image.size))
+            }.cgImage
         }
-        return out
     }
-
-    /// The image's pixels as an upright (`.up`, scale 1) CGImage so Vision's
-    /// normalized boxes map cleanly onto the page frame. Mirrors
-    /// `BoundingBoxCropper`'s upright handling; `renderSource` already satisfies
-    /// the fast path, but redrawing keeps a future non-upright source aligned.
-    private static func uprightCGImage(_ image: UIImage) -> CGImage? {
-        if image.imageOrientation == .up, image.scale == 1 { return image.cgImage }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
-        }.cgImage
-    }
-}
 #endif

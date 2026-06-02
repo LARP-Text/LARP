@@ -14,8 +14,7 @@
 
 import Foundation
 
-struct WebSummarizer: Sendable {
-
+struct WebSummarizer {
     /// Read-aloud-friendly failures. Each `errorDescription` is a single plain
     /// sentence suitable for VoiceOver to speak as-is.
     enum SummaryError: Error, LocalizedError {
@@ -26,9 +25,9 @@ struct WebSummarizer: Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .notConfigured:       return "Website summaries aren't set up on this device."
-            case .unreachable:         return "This website couldn't be opened."
-            case .emptyPage:           return "There was no readable text on this website."
+            case .notConfigured: return "Website summaries aren't set up on this device."
+            case .unreachable: return "This website couldn't be opened."
+            case .emptyPage: return "There was no readable text on this website."
             case .summarizationFailed: return "This website couldn't be summarized."
             }
         }

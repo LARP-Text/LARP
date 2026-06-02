@@ -1,0 +1,30 @@
+# SwiftFormat configuration for AlphaG3n
+# Conservative, semantics-preserving formatting. Run with: swiftformat .
+
+--swiftversion 5.0
+
+# Indentation
+--indent 4
+--tabwidth 4
+--indentcase false
+
+# Wrapping — preserve the author's intent; don't force-wrap or collapse long lines.
+--maxwidth none
+--wraparguments preserve
+--wrapparameters preserve
+--wrapcollections preserve
+
+# Spacing / tidiness
+--trimwhitespace always
+--emptybraces no-space
+--commas inline
+--semicolons inline
+--ranges no-space
+--operatorfunc no-space
+
+# Redundancy cleanup (all safe / non-behavioral)
+--self remove
+--redundanttype inferred
+
+# Leave import order untouched to avoid noisy reordering
+--disable sortImports

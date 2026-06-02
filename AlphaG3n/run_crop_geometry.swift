@@ -14,7 +14,6 @@ import CoreGraphics
 
 @main
 struct CropGeometryTest {
-
     static var failures = 0
 
     static func expect(_ actual: CGRect, _ expected: CGRect, _ name: String) {
@@ -39,28 +38,32 @@ struct CropGeometryTest {
             BoundingBoxCropper.paddedRect(CGRect(x: 100, y: 100, width: 200, height: 100),
                                           margin: 0.05, within: bounds),
             CGRect(x: 90, y: 95, width: 220, height: 110),
-            "interior box grows 5% per side")
+            "interior box grows 5% per side"
+        )
 
         // 2. margin 0 leaves an interior box unchanged.
         expect(
             BoundingBoxCropper.paddedRect(CGRect(x: 100, y: 100, width: 200, height: 100),
                                           margin: 0, within: bounds),
             CGRect(x: 100, y: 100, width: 200, height: 100),
-            "margin 0 is identity for an interior box")
+            "margin 0 is identity for an interior box"
+        )
 
         // 3. Growth past the top-left edge clamps to bounds.
         expect(
             BoundingBoxCropper.paddedRect(CGRect(x: 0, y: 0, width: 100, height: 100),
                                           margin: 0.1, within: bounds),
             CGRect(x: 0, y: 0, width: 110, height: 110),
-            "growth past top-left edge clamps to bounds")
+            "growth past top-left edge clamps to bounds"
+        )
 
         // 4. Growth past the bottom-right edge clamps too.
         expect(
             BoundingBoxCropper.paddedRect(CGRect(x: 900, y: 900, width: 100, height: 100),
                                           margin: 0.1, within: bounds),
             CGRect(x: 890, y: 890, width: 110, height: 110),
-            "growth past bottom-right edge clamps to bounds")
+            "growth past bottom-right edge clamps to bounds"
+        )
 
         if failures == 0 {
             print("\nall geometry checks passed")

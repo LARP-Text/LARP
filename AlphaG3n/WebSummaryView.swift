@@ -28,7 +28,9 @@ struct WebSummaryView: View {
     /// reveal can't fire during a later hand-off.
     @State private var revealGeneration = 0
 
-    private var host: String { url.host ?? "the linked website" }
+    private var host: String {
+        url.host ?? "the linked website"
+    }
 
     var body: some View {
         ZStack {
@@ -72,7 +74,7 @@ struct WebSummaryView: View {
         case .loading:
             loadingView
 
-        case .loaded(let summary):
+        case let .loaded(summary):
             let split = SentenceSplitter.sentences(in: summary)
             let sentences = split.isEmpty ? [summary] : split
             VStack(spacing: 0) {
@@ -84,7 +86,7 @@ struct WebSummaryView: View {
                 SentenceListView(sentences: sentences, accent: LarpTheme.orange)
             }
 
-        case .failed(let message):
+        case let .failed(message):
             Spacer()
             VStack(spacing: 20) {
                 Image(systemName: "exclamationmark.triangle.fill")

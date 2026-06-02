@@ -30,9 +30,9 @@ struct AnalysisView: View {
     /// out of VoiceOver so focus lands back on the Recapture bar (see
     /// `returnFocusToRecapture`) rather than diving into the boxes.
     @State private var stageHiddenFromVoiceOver = false
-    // The staggered box reveal is visual only (see `animatesEntry`); Reduce
-    // Motion turns it off. It now plays under VoiceOver too — that stays
-    // accessibility-safe, see `animatesEntry`.
+    /// The staggered box reveal is visual only (see `animatesEntry`); Reduce
+    /// Motion turns it off. It now plays under VoiceOver too — that stays
+    /// accessibility-safe, see `animatesEntry`.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -60,13 +60,13 @@ struct AnalysisView: View {
         .onAppear { withAnimation(.easeOut(duration: 0.32)) { mounted = true } }
         .fullScreenCover(item: $drilldown, onDismiss: returnFocusToRecapture) { item in
             switch item {
-            case .reading(let target):
+            case let .reading(target):
                 ChunkDetailScreen(
                     title: target.title,
                     accent: target.accent,
                     sentences: target.sentences
                 ) { drilldown = nil }
-            case .summary(let qr):
+            case let .summary(qr):
                 WebSummaryView(url: qr.url) { drilldown = nil }
             }
         }
@@ -281,11 +281,15 @@ struct AnalysisView: View {
     /// ordered by `accessibilitySortPriority`, with `voiceOverDeferredEntry`
     /// landing focus on the first one. The boxes only *look* like they fade in;
     /// their accessibility never blinks in or out.
-    private var animatesEntry: Bool { !reduceMotion }
+    private var animatesEntry: Bool {
+        !reduceMotion
+    }
 
     /// A box's "fully revealed" state. Always true when we're not animating, so
     /// boxes never start hidden for Reduce-Motion users.
-    private var boxesShown: Bool { !animatesEntry || mounted }
+    private var boxesShown: Bool {
+        !animatesEntry || mounted
+    }
 
     /// Fade-and-scale-up for one box, delayed by how far down the photo it sits
     /// (`verticalFraction`: 0 top → 1 bottom) so regions reveal top-to-bottom —
@@ -295,7 +299,7 @@ struct AnalysisView: View {
     private func entryAnimation(verticalFraction: CGFloat) -> Animation? {
         guard animatesEntry else { return nil }
         let f = min(max(verticalFraction, 0), 1)
-        let delay = 0.12 + Double(f) * 0.55   // top leads, bottom trails
+        let delay = 0.12 + Double(f) * 0.55 // top leads, bottom trails
         return .timingCurve(0.2, 0, 0, 1, duration: 0.42).delay(delay)
     }
 
@@ -336,7 +340,7 @@ struct AnalysisView: View {
             CGPoint(x: b.minX, y: b.minY),
             CGPoint(x: b.maxX, y: b.minY),
             CGPoint(x: b.maxX, y: b.maxY),
-            CGPoint(x: b.minX, y: b.maxY),
+            CGPoint(x: b.minX, y: b.maxY)
         ]
     }
 
@@ -511,7 +515,9 @@ private struct PolygonShape: Shape {
             return path
         }
         path.move(to: points[0])
-        for p in points.dropFirst() { path.addLine(to: p) }
+        for p in points.dropFirst() {
+            path.addLine(to: p)
+        }
         path.closeSubpath()
         return path
     }
@@ -526,8 +532,7 @@ private extension View {
     /// own center at its final spot. With `animation == nil` the box snaps to
     /// shown with no motion — the VoiceOver / Reduce-Motion path.
     func staggeredBoxEntry(shown: Bool, animation: Animation?) -> some View {
-        self
-            .scaleEffect(shown ? 1 : 0.94)
+        scaleEffect(shown ? 1 : 0.94)
             .opacity(shown ? 1 : 0)
             .animation(animation, value: shown)
     }
@@ -545,8 +550,8 @@ enum Drilldown: Identifiable {
 
     var id: String {
         switch self {
-        case .reading(let target): return "reading-\(target.id)"
-        case .summary(let qr): return "summary-\(qr.id)"
+        case let .reading(target): return "reading-\(target.id)"
+        case let .summary(qr): return "summary-\(qr.id)"
         }
     }
 }

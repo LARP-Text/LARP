@@ -8,7 +8,7 @@
 import CoreGraphics
 
 /// A single tracked object with a stable identity across frames.
-struct TrackedBox: Sendable, Identifiable {
+struct TrackedBox: Identifiable {
     let id: Int
     /// Normalized Vision-space rect (origin bottom-left, components in [0, 1]).
     let normalizedRect: CGRect
@@ -36,7 +36,6 @@ struct TrackedBox: Sendable, Identifiable {
 /// track's last known position, which is fine for slow-moving subjects like
 /// documents and signs.
 final class ByteTracker {
-
     /// Detections above this score participate in the stage-1 match.
     var highThreshold: Float = 0.25
     /// Stage-2 detections must score at least this much (but less than
@@ -54,17 +53,17 @@ final class ByteTracker {
     /// Drop a track entirely after this many consecutive frames without a match.
     /// 20 ≈ 0.7s at 30fps — long enough to keep the same ID through a brief
     /// occlusion, short enough to free up IDs quickly when an object leaves.
-    var maxLost: Int = 20
+    var maxLost = 20
     /// Stop *drawing* a track after this many consecutive frames without a
     /// match. The track stays alive internally until `maxLost`, so a re-detect
     /// inside `maxLost` re-acquires the same ID without flicker. Smaller =
     /// boxes disappear faster the moment the detector loses the object.
-    var maxDisplayLost: Int = 3
+    var maxDisplayLost = 3
     /// EMA smoothing on matched tracks. 1.0 = snap straight to the detection
     /// (jittery), 0.0 = never move. Lower means smoother and laggier.
     var smoothFactor: CGFloat = 0.3
 
-    private var nextID: Int = 1
+    private var nextID = 1
     private var tracks: [Track] = []
 
     private struct Track {
@@ -109,7 +108,7 @@ final class ByteTracker {
         )
 
         // Age unmatched tracks; drop those that have been gone too long.
-        tracks = tracks.enumerated().compactMap { (idx, track) in
+        tracks = tracks.enumerated().compactMap { idx, track in
             if matchedTracks.contains(idx) { return track }
             var aged = track
             aged.lost += 1

@@ -20,15 +20,14 @@ import UIKit
 import CoreVideo
 
 public final class CraftModel {
-
-    // CRAFT input is a fixed square; must match the size used at conversion.
+    /// CRAFT input is a fixed square; must match the size used at conversion.
     public static let inputSize = 768
 
     // Same thresholds as the Python reference.
-    public var textThreshold: Float = 0.7   // a component must contain at least one pixel this strong
-    public var lowText: Float = 0.4         // region pixels above this count as "text"
-    public var linkThreshold: Float = 0.4   // affinity pixels above this count as "link"
-    public var minArea = 10                 // drop specks smaller than this (in score-map pixels)
+    public var textThreshold: Float = 0.7 // a component must contain at least one pixel this strong
+    public var lowText: Float = 0.4 // region pixels above this count as "text"
+    public var linkThreshold: Float = 0.4 // affinity pixels above this count as "link"
+    public var minArea = 10 // drop specks smaller than this (in score-map pixels)
 
     /// OpenAI knobs (passed through to `OpenAIClient`). `imageDetail = .high`
     /// is best for small text; drop to `.low` to cut cost. `temperature = 0`
@@ -60,10 +59,10 @@ public final class CraftModel {
 
         public var errorDescription: String? {
             switch self {
-            case .modelNotFound:    return "CRAFT.mlmodelc not found in the app bundle. Add CRAFT.mlpackage to the target."
-            case .pixelBufferFailed:return "Could not build the model input pixel buffer."
-            case .missingOutput:    return "CRAFT model did not return region/affinity score maps."
-            case .encodeFailed:     return "Could not JPEG-encode the overlay image."
+            case .modelNotFound: return "CRAFT.mlmodelc not found in the app bundle. Add CRAFT.mlpackage to the target."
+            case .pixelBufferFailed: return "Could not build the model input pixel buffer."
+            case .missingOutput: return "CRAFT model did not return region/affinity score maps."
+            case .encodeFailed: return "Could not JPEG-encode the overlay image."
             }
         }
     }
@@ -90,11 +89,13 @@ public final class CraftModel {
         }
 
         let input = try MLDictionaryFeatureProvider(
-            dictionary: ["image": MLFeatureValue(pixelBuffer: prepared.buffer)])
+            dictionary: ["image": MLFeatureValue(pixelBuffer: prepared.buffer)]
+        )
         let out = try model.prediction(from: input)
 
         guard let region = out.featureValue(for: "region_score")?.multiArrayValue,
-              let affinity = out.featureValue(for: "affinity_score")?.multiArrayValue else {
+              let affinity = out.featureValue(for: "affinity_score")?.multiArrayValue
+        else {
             throw CraftError.missingOutput
         }
 
@@ -117,7 +118,7 @@ public final class CraftModel {
             let scaled = CGRect(
                 x: r.minX * imagePerScoreMapPixel,
                 y: r.minY * imagePerScoreMapPixel,
-                width:  r.width  * imagePerScoreMapPixel,
+                width: r.width * imagePerScoreMapPixel,
                 height: r.height * imagePerScoreMapPixel
             )
             // The score map comes back mirrored top-to-bottom relative to the
@@ -168,7 +169,8 @@ public final class CraftModel {
                     x: box.rect.minX,
                     y: max(0, box.rect.minY - textSize.height),
                     width: textSize.width + 6,
-                    height: textSize.height)
+                    height: textSize.height
+                )
                 cg.setFillColor(stroke.cgColor)
                 cg.fill(tagRect)
                 label.draw(at: CGPoint(x: tagRect.minX + 3, y: tagRect.minY),
@@ -189,7 +191,8 @@ public final class CraftModel {
     /// transcription, `block_label` is "text", and group/order follow box order.
     public func recognize(in image: UIImage,
                           apiKey: String,
-                          model: String = "gpt-4o") async throws -> [ExtractedPage] {
+                          model: String = "gpt-4o") async throws -> [ExtractedPage]
+    {
         let boxes = try detect(in: image)
         let overlay = renderNumbered(boxes, on: image)
 
@@ -222,7 +225,8 @@ public final class CraftModel {
             inlineImages: [:],
             outputImages: [:],
             prunedResult: pruned,
-            preprocessedImageURL: nil)
+            preprocessedImageURL: nil
+        )
         return [page]
     }
 
@@ -230,7 +234,8 @@ public final class CraftModel {
     /// Constructed as JSON and decoded through PrunedResult's own Decodable path,
     /// so the shape is identical to what the PaddleOCR API would have produced.
     private func buildPrunedResult(boxes: [Box], texts: [Int: String],
-                                   image: UIImage) throws -> VirtualDocument.PrunedResult {
+                                   image: UIImage) throws -> VirtualDocument.PrunedResult
+    {
         let blocks: [[String: Any]] = boxes.map { box in
             let r = box.rect
             return [
@@ -265,13 +270,14 @@ public final class CraftModel {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.hasPrefix("```") {
             s = s.replacingOccurrences(of: "```json", with: "")
-                 .replacingOccurrences(of: "```", with: "")
-                 .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         // Primary: JSON object of index -> text.
         if let data = s.data(using: .utf8),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        {
             var out: [Int: String] = [:]
             for (k, v) in obj {
                 guard let idx = Int(k) else { continue }
@@ -338,14 +344,15 @@ public final class CraftModel {
     // MARK: - Box extraction (port of craft_postprocess.get_boxes)
 
     private func extractBoxes(region: [Float], affinity: [Float],
-                              w: Int, h: Int) -> [CGRect] {
+                              w: Int, h: Int) -> [CGRect]
+    {
         // Binary mask: region above lowText OR affinity above linkThreshold.
         var mask = [Bool](repeating: false, count: w * h)
         for i in 0..<(w * h) {
             mask[i] = region[i] > lowText || affinity[i] > linkThreshold
         }
 
-        var labels = [Int](repeating: 0, count: w * h)   // 0 == unlabeled
+        var labels = [Int](repeating: 0, count: w * h) // 0 == unlabeled
         var boxes: [CGRect] = []
         var current = 0
         var stack: [Int] = []
@@ -369,10 +376,10 @@ public final class CraftModel {
                 if region[p] > maxRegion { maxRegion = region[p] }
 
                 // 4-connected neighbors
-                if x > 0     { let n = p - 1; if mask[n] && labels[n] == 0 { labels[n] = current; stack.append(n) } }
-                if x < w - 1 { let n = p + 1; if mask[n] && labels[n] == 0 { labels[n] = current; stack.append(n) } }
-                if y > 0     { let n = p - w; if mask[n] && labels[n] == 0 { labels[n] = current; stack.append(n) } }
-                if y < h - 1 { let n = p + w; if mask[n] && labels[n] == 0 { labels[n] = current; stack.append(n) } }
+                if x > 0 { let n = p - 1; if mask[n], labels[n] == 0 { labels[n] = current; stack.append(n) } }
+                if x < w - 1 { let n = p + 1; if mask[n], labels[n] == 0 { labels[n] = current; stack.append(n) } }
+                if y > 0 { let n = p - w; if mask[n], labels[n] == 0 { labels[n] = current; stack.append(n) } }
+                if y < h - 1 { let n = p + w; if mask[n], labels[n] == 0 { labels[n] = current; stack.append(n) } }
             }
 
             if area < minArea { continue }
@@ -408,7 +415,7 @@ public final class CraftModel {
         let config = MLModelConfiguration()
         config.computeUnits = .all
         let m = try MLModel(contentsOf: url, configuration: config)
-        self.model = m
+        model = m
         return m
     }
 
@@ -420,7 +427,7 @@ public final class CraftModel {
     private static func uprightImage(_ image: UIImage) -> UIImage {
         guard image.imageOrientation != .up else { return image }
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1   // 1:1 point→pixel so makePixelBuffer's size math holds.
+        format.scale = 1 // 1:1 point→pixel so makePixelBuffer's size math holds.
         format.opaque = true
         let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
         return renderer.image { _ in
@@ -436,7 +443,9 @@ public final class CraftModel {
         }
         // Float16 / Double / other: go through NSNumber (slower but safe).
         var out = [Float](repeating: 0, count: count)
-        for i in 0..<count { out[i] = arr[i].floatValue }
+        for i in 0..<count {
+            out[i] = arr[i].floatValue
+        }
         return out
     }
 
@@ -455,7 +464,8 @@ public final class CraftModel {
     /// Returns the buffer paired with the fit ratio, so the caller can
     /// invert it when mapping score-map boxes back into image coordinates.
     private static func makePixelBuffer(from image: UIImage,
-                                        size: Int) -> (buffer: CVPixelBuffer, scale: CGFloat)? {
+                                        size: Int) -> (buffer: CVPixelBuffer, scale: CGFloat)?
+    {
         guard let cg = image.cgImage else { return nil }
 
         let scale = min(CGFloat(size) / image.size.width,

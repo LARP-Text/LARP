@@ -25,7 +25,6 @@ import UniformTypeIdentifiers
 
 @main
 struct OpenAIBatchTest {
-
     /// A tiny blank white JPEG — a valid image the Responses API accepts, with
     /// no text on it (so a correct pass classifies it status=empty).
     /// 1x1 is degenerate enough that some pipelines balk, so we use a small tile.
@@ -33,7 +32,8 @@ struct OpenAIBatchTest {
         let cs = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(data: nil, width: side, height: side,
                                   bitsPerComponent: 8, bytesPerRow: 0, space: cs,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else {
             return nil
         }
         ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
@@ -42,7 +42,8 @@ struct OpenAIBatchTest {
 
         let out = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(
-            out as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+            out as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil
+        ) else { return nil }
         CGImageDestinationAddImage(dest, cg, nil)
         guard CGImageDestinationFinalize(dest) else { return nil }
         return out as Data
@@ -55,7 +56,8 @@ struct OpenAIBatchTest {
 
     static func main() async {
         guard let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"],
-              !key.trimmingCharacters(in: .whitespaces).isEmpty else {
+              !key.trimmingCharacters(in: .whitespaces).isEmpty
+        else {
             fail("error: OPENAI_API_KEY is not set in the environment.")
         }
 
@@ -79,7 +81,7 @@ struct OpenAIBatchTest {
         var ok = 0, failed = 0
         for (i, result) in results.enumerated() {
             switch result {
-            case .success(let reading):
+            case let .success(reading):
                 ok += 1
                 switch reading.status {
                 case .readable:
@@ -89,7 +91,7 @@ struct OpenAIBatchTest {
                     // empty / unreadable / irrelevant: the note explains what's wrong.
                     print("  [\(i)] ✓ \(reading.status.rawValue) — \(reading.note)")
                 }
-            case .failure(let error):
+            case let .failure(error):
                 failed += 1
                 print(String(format: "  [%d] ✗ FAILURE: %@", i, error.localizedDescription))
             }

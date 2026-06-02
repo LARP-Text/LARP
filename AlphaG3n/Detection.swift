@@ -10,12 +10,12 @@ import CoreGraphics
 /// A 4-corner polygon in Vision-normalized coordinates (origin bottom-left,
 /// components in [0, 1]). Stored as 4 points in counter-clockwise order so the
 /// renderer can stroke them directly.
-struct Quad: Sendable, Equatable {
+struct Quad: Equatable {
     /// Counter-clockwise corners. Length is always 4.
     let points: [CGPoint]
 
     init(_ p0: CGPoint, _ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint) {
-        self.points = [p0, p1, p2, p3]
+        points = [p0, p1, p2, p3]
     }
 
     init(points: [CGPoint]) {
@@ -27,11 +27,11 @@ struct Quad: Sendable, Equatable {
     /// (BL → BR → TR → TL) matching what the segmentation detector emits.
     /// Used as a fallback when a tracked detection has no oriented outline.
     init(rect: CGRect) {
-        self.points = [
+        points = [
             CGPoint(x: rect.minX, y: rect.minY),
             CGPoint(x: rect.maxX, y: rect.minY),
             CGPoint(x: rect.maxX, y: rect.maxY),
-            CGPoint(x: rect.minX, y: rect.maxY),
+            CGPoint(x: rect.minX, y: rect.maxY)
         ]
     }
 
@@ -76,7 +76,7 @@ struct Quad: Sendable, Equatable {
 
 /// One detected region. The tracker matches on `normalizedRect`; the renderer
 /// draws `normalizedQuad` if it's present, otherwise the rect.
-struct Detection: Sendable {
+struct Detection {
     /// Normalized Vision-space axis-aligned rect (origin bottom-left, [0, 1]).
     let normalizedRect: CGRect
     /// Optional oriented quad in the same coordinate space. Non-nil when the

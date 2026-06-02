@@ -20,11 +20,10 @@
 import Foundation
 
 #if canImport(FoundationNetworking)
-import FoundationNetworking
+    import FoundationNetworking
 #endif
 
 public final class ModalOCRClient: @unchecked Sendable {
-
     public struct Configuration: Sendable {
         /// The Pipeline.parse web endpoint from your Modal deployment, e.g.
         /// https://<you>--paddleocr-vl-pipeline-parse.modal.run
@@ -55,11 +54,11 @@ public final class ModalOCRClient: @unchecked Sendable {
 
         public var description: String {
             switch self {
-            case .requestFailed(let status, let body):
+            case let .requestFailed(status, body):
                 return "Modal OCR request failed (HTTP \(status)): \(body)"
             case .invalidResponseBody:
                 return "Modal OCR response could not be decoded"
-            case .serverError(let message):
+            case let .serverError(message):
                 return "Modal OCR server error: \(message)"
             }
         }
@@ -70,7 +69,7 @@ public final class ModalOCRClient: @unchecked Sendable {
     private let decoder = JSONDecoder()
 
     public init(configuration: Configuration, session: URLSession? = nil) {
-        self.config = configuration
+        config = configuration
         self.session = session ?? Self.makeDefaultSession(config: configuration)
     }
 
@@ -116,9 +115,9 @@ public final class ModalOCRClient: @unchecked Sendable {
     /// but unused — the Modal path returns inline data, nothing to write to disk.
     public func process(
         imageData: Data,
-        filename: String = "capture.jpg",
-        mimeType: String = "image/jpeg",
-        outputDirectory: URL? = nil
+        filename _: String = "capture.jpg",
+        mimeType _: String = "image/jpeg",
+        outputDirectory _: URL? = nil
     ) async throws -> [ExtractedPage] {
         let b64 = imageData.base64EncodedString()
         let body = try JSONSerialization.data(withJSONObject: ["image_base64": b64])
@@ -175,7 +174,9 @@ extension ModalOCRClient {
     /// MODAL_OCR_URL — stored *without* the `https://` scheme on purpose:
     /// xcconfig reads `//` as the start of a comment, so a full URL would be
     /// silently truncated to `https:`. `makeDefault()` prepends the scheme.
-    static var isEndpointConfigured: Bool { Secrets.modalOCRURL != nil }
+    static var isEndpointConfigured: Bool {
+        Secrets.modalOCRURL != nil
+    }
 
     /// Builds a client from the endpoint baked into the app bundle.
     /// Returns nil if the endpoint isn't configured — callers should gate on

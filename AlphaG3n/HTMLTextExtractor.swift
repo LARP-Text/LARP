@@ -17,7 +17,6 @@
 import Foundation
 
 enum HTMLTextExtractor {
-
     /// Plain, collapsed reading text extracted from `html`, clamped to
     /// `maxChars` characters (0 disables the clamp). Returns "" for markup that
     /// carries no text.
@@ -74,7 +73,7 @@ enum HTMLTextExtractor {
         let named: [(String, String)] = [
             ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""),
             ("&apos;", "'"), ("&#39;", "'"), ("&nbsp;", " "),
-            ("&amp;", "&"),
+            ("&amp;", "&")
         ]
         for (entity, replacement) in named {
             out = out.replacingOccurrences(of: entity, with: replacement)

@@ -32,7 +32,7 @@ struct SentenceListView: View {
     /// the first sentence / lone type card instead of defaulting to the top-most,
     /// higher-priority "Back to scan" bar. The website summary leaves this false
     /// so its `ReaderHero` (the site name) keeps the initial focus.
-    var leadsFocus: Bool = false
+    var leadsFocus = false
 
     /// Optional VoiceOver focus anchor for the screen's *first* card (first
     /// sentence, or the lone type card). The caller sets its bound value true a
@@ -45,7 +45,9 @@ struct SentenceListView: View {
     /// Whether the per-sentence cards are listed. A single-sentence typed block
     /// collapses to just its type card; the website summary (no typeFooter)
     /// always lists its sentence(s), even when there's only one.
-    private var listsSentences: Bool { typeFooter == nil || sentences.count > 1 }
+    private var listsSentences: Bool {
+        typeFooter == nil || sentences.count > 1
+    }
 
     /// VoiceOver order for the content cards. With `leadsFocus` set, returns a
     /// descending priority that sits above `LarpBackBar`'s 1 (last content card

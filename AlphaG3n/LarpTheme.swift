@@ -175,7 +175,7 @@ struct LarpBackBar: View {
 /// glyphs flank the label, matching the mockup. Disabled (dimmed) while a
 /// capture is already in flight.
 struct LarpCaptureBar: View {
-    var isEnabled: Bool = true
+    var isEnabled = true
     var action: () -> Void
 
     private var glyph: some View {
@@ -229,7 +229,7 @@ struct LarpCaptureBar: View {
 /// default (callers that want it spoken pass `spoken: true`).
 struct LarpHintLine: View {
     var text: String
-    var spoken: Bool = false
+    var spoken = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -297,7 +297,7 @@ private struct VoiceOverDeferredEntry: ViewModifier {
 struct InertPhoto: UIViewRepresentable {
     let image: UIImage
 
-    func makeUIView(context: Context) -> UIImageView {
+    func makeUIView(context _: Context) -> UIImageView {
         let view = UIImageView(image: image)
         view.contentMode = .scaleAspectFit
         // Inert at the UIKit layer: no touches, and out of the accessibility
@@ -314,7 +314,7 @@ struct InertPhoto: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: UIImageView, context: Context) {
+    func updateUIView(_ uiView: UIImageView, context _: Context) {
         uiView.image = image
     }
 }

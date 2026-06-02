@@ -17,7 +17,6 @@ import CoreGraphics
 /// table in sync with whatever prompt list the model was exported with —
 /// adding new classes to the model means adding entries here.
 enum YoloEClasses {
-
     /// Class names indexed by the integer id the model emits. Used by the
     /// capture path to look up per-class behavior and by debug overlays.
     static let names: [String] = [
@@ -39,7 +38,7 @@ enum YoloEClasses {
         // money / cards                          (ids 49–53)
         "banknote", "credit card", "id card", "passport", "coin",
         // other                                  (ids 54–57)
-        "keyboard", "whiteboard", "mug", "clock",
+        "keyboard", "whiteboard", "mug", "clock"
     ]
 
     /// Fractional growth applied to a detection's quad before perspective
@@ -54,70 +53,70 @@ enum YoloEClasses {
     /// back to `defaultCropPadding` (e.g. unknown ids from a re-export).
     private static let cropPaddingOverrides: [Int: CGFloat] = [
         // screens / devices
-        0:  0.05,  // cell phone
-        1:  0.05,  // laptop
-        2:  0.05,  // tablet
-        3:  0.05,  // computer monitor
-        4:  0.05,  // television
-        5:  0.05,  // e-reader
+        0: 0.05, // cell phone
+        1: 0.05, // laptop
+        2: 0.05, // tablet
+        3: 0.05, // computer monitor
+        4: 0.05, // television
+        5: 0.05, // e-reader
         // printed material
-        6:  0.05,  // book
-        7:  0.05,  // magazine
-        8:  0.05,  // newspaper
-        9:  0.05,  // notebook
-        10: 0.05,  // document
-        11: 0.05,  // paper
-        12: 0.05,  // letter
-        13: 0.05,  // envelope
-        14: 0.05,  // receipt
-        15: 0.05,  // ticket
-        16: 0.05,  // menu
-        17: 0.05,  // flyer
-        18: 0.05,  // brochure
-        19: 0.05,  // poster
-        20: 0.05,  // map
-        21: 0.05,  // calendar
-        22: 0.05,  // business card
-        23: 0.05,  // sticky note
+        6: 0.05, // book
+        7: 0.05, // magazine
+        8: 0.05, // newspaper
+        9: 0.05, // notebook
+        10: 0.05, // document
+        11: 0.05, // paper
+        12: 0.05, // letter
+        13: 0.05, // envelope
+        14: 0.05, // receipt
+        15: 0.05, // ticket
+        16: 0.05, // menu
+        17: 0.05, // flyer
+        18: 0.05, // brochure
+        19: 0.05, // poster
+        20: 0.05, // map
+        21: 0.05, // calendar
+        22: 0.05, // business card
+        23: 0.05, // sticky note
         // signage
-        24: 0.05,  // street sign
-        25: 0.05,  // traffic sign
-        26: 0.05,  // stop sign
-        27: 0.05,  // billboard
-        28: 0.05,  // banner
-        29: 0.05,  // license plate
-        30: 0.05,  // exit sign
-        31: 0.05,  // nameplate
-        32: 0.05,  // price tag
+        24: 0.05, // street sign
+        25: 0.05, // traffic sign
+        26: 0.05, // stop sign
+        27: 0.05, // billboard
+        28: 0.05, // banner
+        29: 0.05, // license plate
+        30: 0.05, // exit sign
+        31: 0.05, // nameplate
+        32: 0.05, // price tag
         // packaging / containers
-        33: 0.30,  // bottle
-        34: 0.30,  // can
-        35: 0.05,  // jar
-        36: 0.05,  // box
-        37: 0.05,  // cardboard box
-        38: 0.05,  // food packaging
-        39: 0.05,  // cereal box
-        40: 0.05,  // medicine bottle
-        41: 0.05,  // shopping bag
-        42: 0.05,  // coffee cup
-        43: 0.05,  // carton
+        33: 0.30, // bottle
+        34: 0.30, // can
+        35: 0.05, // jar
+        36: 0.05, // box
+        37: 0.05, // cardboard box
+        38: 0.05, // food packaging
+        39: 0.05, // cereal box
+        40: 0.05, // medicine bottle
+        41: 0.05, // shopping bag
+        42: 0.05, // coffee cup
+        43: 0.05, // carton
         // wearables / branded
-        44: 0.05,  // t-shirt
-        45: 0.05,  // hat
-        46: 0.05,  // jersey
-        47: 0.05,  // badge
-        48: 0.05,  // lanyard
+        44: 0.05, // t-shirt
+        45: 0.05, // hat
+        46: 0.05, // jersey
+        47: 0.05, // badge
+        48: 0.05, // lanyard
         // money / cards
-        49: 0.05,  // banknote
-        50: 0.05,  // credit card
-        51: 0.05,  // id card
-        52: 0.05,  // passport
-        53: 0.05,  // coin
+        49: 0.05, // banknote
+        50: 0.05, // credit card
+        51: 0.05, // id card
+        52: 0.05, // passport
+        53: 0.05, // coin
         // other
-        54: 0.05,  // keyboard
-        55: 0.05,  // whiteboard
-        56: 0.05,  // mug
-        57: 0.05,  // clock
+        54: 0.05, // keyboard
+        55: 0.05, // whiteboard
+        56: 0.05, // mug
+        57: 0.05 // clock
     ]
 
     /// Returns the class name for `classId`, or nil if the id is outside the

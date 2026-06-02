@@ -11,7 +11,6 @@ import Foundation
 
 @main
 struct HTMLTextExtractorTest {
-
     static var failures = 0
 
     static func expect(_ actual: String, _ expected: String, _ name: String) {
@@ -23,7 +22,9 @@ struct HTMLTextExtractorTest {
         }
     }
 
-    static func quoted(_ s: String) -> String { "\"\(s)\"" }
+    static func quoted(_ s: String) -> String {
+        "\"\(s)\""
+    }
 
     static func main() {
         print("HTMLTextExtractor smoke test")

@@ -14,7 +14,6 @@ import Foundation
 import CoreGraphics
 
 public enum BoxMerge {
-
     /// Default proximity enlargement: 0.30 == 30% larger (×1.3, 15% per side).
     public static let defaultEnlargement: CGFloat = 0.30
 
@@ -29,7 +28,9 @@ public enum BoxMerge {
         var parent = Array(0..<boxes.count)
         func find(_ i: Int) -> Int {
             var i = i
-            while parent[i] != i { parent[i] = parent[parent[i]]; i = parent[i] }
+            while parent[i] != i {
+                parent[i] = parent[parent[i]]; i = parent[i]
+            }
             return i
         }
         for i in 0..<boxes.count {

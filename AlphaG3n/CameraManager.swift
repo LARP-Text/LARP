@@ -26,13 +26,13 @@ import UIKit
 ///   * Per-frame `CMSampleBuffer`s are routed through the YOLOE detector +
 ///     ByteTracker so the UI can highlight a quad to perspective-correct
 ///     the captured photo against before upload.
-nonisolated final class CameraManager:
+final nonisolated class CameraManager:
     NSObject,
     ObservableObject,
     AVCaptureVideoDataOutputSampleBufferDelegate,
     AVCapturePhotoCaptureDelegate,
-    @unchecked Sendable {
-
+    @unchecked Sendable
+{
     /// The session the SwiftUI preview layer renders.
     let session = AVCaptureSession()
 
@@ -344,7 +344,8 @@ nonisolated final class CameraManager:
 
             for input in self.session.inputs {
                 if let deviceInput = input as? AVCaptureDeviceInput,
-                   deviceInput.device.hasMediaType(.video) {
+                   deviceInput.device.hasMediaType(.video)
+                {
                     self.session.removeInput(deviceInput)
                 }
             }
@@ -408,7 +409,8 @@ nonisolated final class CameraManager:
 
         if let defaultCamera,
            let input = try? AVCaptureDeviceInput(device: defaultCamera),
-           session.canAddInput(input) {
+           session.canAddInput(input)
+        {
             session.addInput(input)
             activeVideoInput = input
         }
@@ -562,11 +564,11 @@ nonisolated final class CameraManager:
     /// caller should hold the previous angle in that case.
     private static func videoRotationAngle(for orientation: UIDeviceOrientation) -> CGFloat? {
         switch orientation {
-        case .portrait:           return 90
+        case .portrait: return 90
         case .portraitUpsideDown: return 270
-        case .landscapeLeft:      return 0
-        case .landscapeRight:     return 180
-        default:                  return nil
+        case .landscapeLeft: return 0
+        case .landscapeRight: return 180
+        default: return nil
         }
     }
 
@@ -590,7 +592,8 @@ nonisolated final class CameraManager:
 
         guard let connection = photoOutput.connection(with: .video) else { return }
         if connection.isVideoRotationAngleSupported(angle),
-           connection.videoRotationAngle != angle {
+           connection.videoRotationAngle != angle
+        {
             connection.videoRotationAngle = angle
         }
     }
@@ -606,10 +609,10 @@ nonisolated final class CameraManager:
     /// correct orientation (free, and JPEG encoding carries it as EXIF).
     private static func uiImageOrientation(forVideoRotationAngle angle: CGFloat) -> UIImage.Orientation {
         switch Int(angle.rounded()) {
-        case 90:  return .right   // device portrait → rotate pixels 90° CW on display
-        case 180: return .down    // device landscape-right → 180°
-        case 270: return .left    // device portrait upside down → 90° CCW
-        default:  return .up      // device landscape-left (sensor native)
+        case 90: return .right // device portrait → rotate pixels 90° CW on display
+        case 180: return .down // device landscape-right → 180°
+        case 270: return .left // device portrait upside down → 90° CCW
+        default: return .up // device landscape-left (sensor native)
         }
     }
 
@@ -759,7 +762,7 @@ nonisolated final class CameraManager:
         let needsRotate = decoded.imageOrientation != .up
         let needsDownsample = maxPixels > 0 && pixelCount > maxPixels
 
-        if !needsRotate && !needsDownsample {
+        if !needsRotate, !needsDownsample {
             return (data, decoded)
         }
 
@@ -777,7 +780,7 @@ nonisolated final class CameraManager:
         }
 
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1   // 1:1 pixel mapping; size is reported in points.
+        format.scale = 1 // 1:1 pixel mapping; size is reported in points.
         format.opaque = true
         let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
         let prepared = renderer.image { _ in
@@ -800,7 +803,8 @@ nonisolated final class CameraManager:
     ) -> UIImage {
         if let url = preprocessedURL,
            let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-           let img = UIImage(data: data) {
+           let img = UIImage(data: data)
+        {
             return img
         }
         return fallback
@@ -875,7 +879,8 @@ nonisolated final class CameraManager:
     static func isReadableTextBlock(_ block: VirtualDocument.PrunedResult.RawBlock) -> Bool {
         block.isFromCraft
             || VirtualDocument.readableTextLabels.contains(
-                VirtualDocument.BlockLabel(apiValue: block.blockLabel))
+                VirtualDocument.BlockLabel(apiValue: block.blockLabel)
+            )
     }
 
     /// Whether a block is a figure captioned by `OpenAIClient.describeFigures`
@@ -885,7 +890,8 @@ nonisolated final class CameraManager:
     /// CRAFT boxes arrive labeled "text", so no block is ever both.
     static func isFigureBlock(_ block: VirtualDocument.PrunedResult.RawBlock) -> Bool {
         VirtualDocument.figureLabels.contains(
-            VirtualDocument.BlockLabel(apiValue: block.blockLabel))
+            VirtualDocument.BlockLabel(apiValue: block.blockLabel)
+        )
     }
 
     /// Crops every text-class block AND every figure block, processes them
@@ -948,7 +954,7 @@ nonisolated final class CameraManager:
         // Match each readable text crop back to its block id → transcription.
         var readableText: [Int: String] = [:]
         for (crop, result) in zip(textCrops, textResults) {
-            if case .success(let reading) = result, reading.status == .readable {
+            if case let .success(reading) = result, reading.status == .readable {
                 let trimmed = reading.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { readableText[crop.block.blockId] = trimmed }
             }
@@ -957,7 +963,7 @@ nonisolated final class CameraManager:
         // Match each figure crop back to its block id → caption (non-empty only).
         var figureCaptions: [Int: String] = [:]
         for (crop, result) in zip(figureCrops, figureResults) {
-            if case .success(let caption) = result, !caption.isEmpty {
+            if case let .success(caption) = result, !caption.isEmpty {
                 figureCaptions[crop.block.blockId] = caption
             }
         }
@@ -1010,7 +1016,7 @@ nonisolated final class CameraManager:
                 : "(?)"
             let head = "  #\(box.blockId) \(box.blockLabel) bbox=\(bbox) → "
             switch result {
-            case .success(let caption):
+            case let .success(caption):
                 if caption.isEmpty {
                     empty += 1
                     lines.append(head + "caption: (empty)")
@@ -1019,13 +1025,15 @@ nonisolated final class CameraManager:
                     let oneLine = caption.replacingOccurrences(of: "\n", with: " ")
                     lines.append(head + "caption: \"\(oneLine)\"")
                 }
-            case .failure(let error):
+            case let .failure(error):
                 failed += 1
                 lines.append(head + "FAILED: \(error.localizedDescription)")
             }
         }
         print("[figure-caption] \(boxes.count) figures → \(captioned) captioned, \(empty) empty, \(failed) failed")
-        for line in lines { print(line) }
+        for line in lines {
+            print(line)
+        }
     }
 
     /// Prints a one-line summary plus one line per box matched to its reading.
@@ -1048,7 +1056,7 @@ nonisolated final class CameraManager:
             let head = "  #\(box.blockId) \(box.blockLabel)\(craft) bbox=\(bbox) → "
 
             switch result {
-            case .success(let reading):
+            case let .success(reading):
                 switch reading.status {
                 case .readable:
                     readable += 1
@@ -1064,7 +1072,7 @@ nonisolated final class CameraManager:
                     irrelevant += 1
                     lines.append(head + "irrelevant: \(reading.note)")
                 }
-            case .failure(let error):
+            case let .failure(error):
                 failed += 1
                 lines.append(head + "FAILURE: \(error.localizedDescription)")
             }
@@ -1072,8 +1080,11 @@ nonisolated final class CameraManager:
 
         print(String(
             format: "[crop-read] %d merged boxes → %d crops → %d readable, %d empty, %d unreadable, %d irrelevant, %d failed (%.2fs)",
-            totalBlocks, results.count, readable, empty, unreadable, irrelevant, failed, elapsed))
-        for line in lines { print(line) }
+            totalBlocks, results.count, readable, empty, unreadable, irrelevant, failed, elapsed
+        ))
+        for line in lines {
+            print(line)
+        }
     }
 
     @MainActor
@@ -1088,7 +1099,8 @@ nonisolated final class CameraManager:
     /// viewers, the OCR server) then display / interpret the bytes upright
     /// without us having to physically rotate the pixels here.
     private func jpegData(from pixelBuffer: CVPixelBuffer,
-                          orientation: UIImage.Orientation) -> Data? {
+                          orientation: UIImage.Orientation) -> Data?
+    {
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
             return nil
@@ -1120,7 +1132,8 @@ nonisolated final class CameraManager:
     private func jpegData(from pixelBuffer: CVPixelBuffer,
                           perspectiveCorrectingTo quad: Quad,
                           deviceAngle: CGFloat,
-                          orientation: UIImage.Orientation) -> Data? {
+                          orientation: UIImage.Orientation) -> Data?
+    {
         let baseImage = CIImage(cvPixelBuffer: pixelBuffer)
         let extent = baseImage.extent
         // Clamp to the input extent so a class with generous padding that
@@ -1151,7 +1164,8 @@ nonisolated final class CameraManager:
         filter.setValue(CIVector(cgPoint: pixelPoints[c.br]), forKey: "inputBottomRight")
 
         guard let output = filter.outputImage,
-              let cgImage = ciContext.createCGImage(output, from: output.extent) else {
+              let cgImage = ciContext.createCGImage(output, from: output.extent)
+        else {
             return nil
         }
         // Already upright in the object's frame — no device-orientation tag.
@@ -1216,7 +1230,7 @@ nonisolated final class CameraManager:
         var alpha = theta, best = Double.greatestFiniteMagnitude
         for k in 0..<4 {
             let cand = theta + Double(k) * Double.pi / 2
-            let d = abs(atan2(sin(cand - phiUp), cos(cand - phiUp)))   // wrapped distance
+            let d = abs(atan2(sin(cand - phiUp), cos(cand - phiUp))) // wrapped distance
             if d < best { best = d; alpha = cand }
         }
         let rho = Double.pi / 2 - alpha
@@ -1241,20 +1255,22 @@ nonisolated final class CameraManager:
 
     // MARK: - AVCapture delegate callbacks
 
-    func captureOutput(_ output: AVCaptureOutput,
+    func captureOutput(_: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
-                       from connection: AVCaptureConnection) {
+                       from _: AVCaptureConnection)
+    {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         didReceiveFrame(pixelBuffer)
     }
 
-    func photoOutput(_ output: AVCapturePhotoOutput, willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+    func photoOutput(_: AVCapturePhotoOutput, willCapturePhotoFor _: AVCaptureResolvedPhotoSettings) {
         AudioServicesDisposeSystemSoundID(1108)
     }
 
-    func photoOutput(_ output: AVCapturePhotoOutput,
+    func photoOutput(_: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,
-                     error: Error?) {
+                     error: Error?)
+    {
         // Photo (or error) is in hand — the camera has done its job for this
         // shutter press, so detach the input now. This freezes the preview
         // layer on the last frame for the duration of OCR / the failure

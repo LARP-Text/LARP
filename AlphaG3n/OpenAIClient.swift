@@ -18,7 +18,6 @@
 import Foundation
 
 public struct OpenAIClient: Sendable {
-
     /// Vision image detail. `.high` markedly improves small-text OCR but costs
     /// more tokens; `.low` is cheaper/faster; `.auto` lets the API decide.
     public enum ImageDetail: String, Sendable { case low, high, auto }
@@ -62,7 +61,8 @@ public struct OpenAIClient: Sendable {
                 imageDetail: ImageDetail = .auto,
                 responseFormat: ResponseFormat = .jsonObject,
                 reasoningEffort: ReasoningEffort? = nil,
-                endpoint: URL = URL(string: "https://api.openai.com/v1/responses")!) {
+                endpoint: URL = URL(string: "https://api.openai.com/v1/responses")!)
+    {
         self.apiKey = apiKey
         self.model = model
         self.temperature = temperature
@@ -79,9 +79,9 @@ public struct OpenAIClient: Sendable {
 
         public var errorDescription: String? {
             switch self {
-            case .http(let code, let body): return "OpenAI HTTP \(code): \(body)"
-            case .transport(let msg):       return "OpenAI request failed: \(msg)"
-            case .badResponse(let body):    return "Unexpected OpenAI response shape: \(body)"
+            case let .http(code, body): return "OpenAI HTTP \(code): \(body)"
+            case let .transport(msg): return "OpenAI request failed: \(msg)"
+            case let .badResponse(body): return "Unexpected OpenAI response shape: \(body)"
             }
         }
     }
@@ -94,7 +94,8 @@ public struct OpenAIClient: Sendable {
     public func vision(system: String,
                        user: String,
                        jpeg: Data,
-                       session: URLSession = .shared) async throws -> String {
+                       session: URLSession = .shared) async throws -> String
+    {
         let dataURL = "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
 
         var body: [String: Any] = [
@@ -104,10 +105,10 @@ public struct OpenAIClient: Sendable {
                  "content": [["type": "input_text", "text": system]]],
                 ["role": "user",
                  "content": [
-                    ["type": "input_text", "text": user],
-                    ["type": "input_image",
-                     "image_url": dataURL,
-                     "detail": imageDetail.rawValue]
+                     ["type": "input_text", "text": user],
+                     ["type": "input_image",
+                      "image_url": dataURL,
+                      "detail": imageDetail.rawValue]
                  ]]
             ]
         ]
@@ -134,7 +135,8 @@ public struct OpenAIClient: Sendable {
     /// part of the user turn.
     public func respondText(system: String,
                             user: String,
-                            session: URLSession = .shared) async throws -> String {
+                            session: URLSession = .shared) async throws -> String
+    {
         var body: [String: Any] = [
             "model": model,
             "input": [
@@ -153,14 +155,16 @@ public struct OpenAIClient: Sendable {
     /// text reply; leaves the reasoning budget at the model default since a good
     /// summary benefits from some reasoning. Throws `OpenAIError` on failure.
     public func summarizeWebPage(text: String,
-                                 session: URLSession = .shared) async throws -> String {
+                                 session: URLSession = .shared) async throws -> String
+    {
         var client = self
         client.responseFormat = .text
         let system = Self.webPageSummarySystemPrompt + " Output a brief 2–3 sentence summary."
         return try await client.respondText(
             system: system,
             user: "Summarize this web page content:\n\n\(text)",
-            session: session)
+            session: session
+        )
     }
 
     /// Applies the shared model knobs (temperature, reasoning effort, response
@@ -173,7 +177,7 @@ public struct OpenAIClient: Sendable {
             break
         case .jsonObject:
             body["text"] = ["format": ["type": "json_object"]]
-        case .jsonSchema(let name, let schemaJSON):
+        case let .jsonSchema(name, schemaJSON):
             if let schema = try? JSONSerialization.jsonObject(with: Data(schemaJSON.utf8)) {
                 body["text"] = ["format": [
                     "type": "json_schema",
@@ -188,7 +192,8 @@ public struct OpenAIClient: Sendable {
     /// POSTs a prepared Responses body and returns the assistant text. Shared
     /// transport for `vision(...)` and `respondText(...)`.
     private func send(_ body: [String: Any],
-                      session: URLSession) async throws -> String {
+                      session: URLSession) async throws -> String
+    {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -287,7 +292,8 @@ public struct OpenAIClient: Sendable {
                             user: String,
                             images: [Data],
                             maxConcurrent: Int = 5,
-                            session: URLSession = .shared) async -> [Result<String, Error>] {
+                            session: URLSession = .shared) async -> [Result<String, Error>]
+    {
         guard !images.isEmpty else { return [] }
         let limit = max(1, maxConcurrent)
 
@@ -313,7 +319,9 @@ public struct OpenAIClient: Sendable {
             }
 
             // Prime the window, then top it up as each request finishes.
-            while next < min(limit, images.count) { schedule(next); next += 1 }
+            while next < min(limit, images.count) {
+                schedule(next); next += 1
+            }
             while let (index, result) = await group.next() {
                 results[index] = result
                 if next < images.count { schedule(next); next += 1 }
@@ -331,7 +339,8 @@ public struct OpenAIClient: Sendable {
     /// the JSON is guaranteed to decode into `TextReading`. Does not throw.
     public func readText(in images: [Data],
                          maxConcurrent: Int = 5,
-                         session: URLSession = .shared) async -> [Result<TextReading, Error>] {
+                         session: URLSession = .shared) async -> [Result<TextReading, Error>]
+    {
         var structured = self
         structured.responseFormat = .jsonSchema(name: "text_reading",
                                                 schemaJSON: TextReading.schemaJSON)
@@ -343,16 +352,18 @@ public struct OpenAIClient: Sendable {
             user: "Read the text in this image.",
             images: images,
             maxConcurrent: maxConcurrent,
-            session: session)
+            session: session
+        )
 
         let decoder = JSONDecoder()
         return rawResults.map { result in
             result.flatMap { jsonString in
                 do {
-                    return .success(try decoder.decode(TextReading.self, from: Data(jsonString.utf8)))
+                    return try .success(decoder.decode(TextReading.self, from: Data(jsonString.utf8)))
                 } catch {
                     return .failure(OpenAIError.badResponse(
-                        "could not decode TextReading (\(error.localizedDescription)): \(jsonString)"))
+                        "could not decode TextReading (\(error.localizedDescription)): \(jsonString)"
+                    ))
                 }
             }
         }
@@ -369,7 +380,8 @@ public struct OpenAIClient: Sendable {
     /// not throw; a single image's failure is captured as `.failure(...)`.
     public func describeFigures(in images: [Data],
                                 maxConcurrent: Int = 5,
-                                session: URLSession = .shared) async -> [Result<String, Error>] {
+                                session: URLSession = .shared) async -> [Result<String, Error>]
+    {
         var captioner = self
         captioner.responseFormat = .text
         captioner.imageDetail = .low
@@ -380,7 +392,8 @@ public struct OpenAIClient: Sendable {
             user: "Describe this figure very concisely.",
             images: images,
             maxConcurrent: maxConcurrent,
-            session: session)
+            session: session
+        )
         return raw.map { $0.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } }
     }
 
@@ -388,11 +401,12 @@ public struct OpenAIClient: Sendable {
     /// text is usable. Produced by `readText(in:)` via Structured Outputs.
     public struct TextReading: Sendable, Codable, Equatable {
         public enum Status: String, Sendable, Codable {
-            case readable      // legible, meaningful text was transcribed into `text`
-            case empty         // the image contains no text at all
-            case unreadable    // text is present but too blurry/dark/small to read
-            case irrelevant    // markings aren't real text (e.g. a keyboard, logos, UI)
+            case readable // legible, meaningful text was transcribed into `text`
+            case empty // the image contains no text at all
+            case unreadable // text is present but too blurry/dark/small to read
+            case irrelevant // markings aren't real text (e.g. a keyboard, logos, UI)
         }
+
         /// Which of the four cases this image fell into.
         public let status: Status
         /// The transcription. Empty unless `status == .readable`.

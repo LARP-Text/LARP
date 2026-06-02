@@ -16,7 +16,6 @@ import NaturalLanguage
 /// Foundation/NaturalLanguage-only so it can be smoke-tested standalone via
 /// `run_sentence_split.swift`.
 enum SentenceSplitter {
-
     /// The trimmed, non-empty sentences in `text`, in reading order. Returns an
     /// empty array for blank input and a single-element array when the text is
     /// just one sentence — callers gate the drill-in on `count >= 2`.
