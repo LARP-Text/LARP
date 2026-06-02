@@ -15,6 +15,7 @@ content. VoiceOver support is a first-class concern throughout.
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [Presentation](#presentation)
 - [How it works](#how-it-works)
   - [Pipeline overview](#pipeline-overview)
   - [Stage-by-stage](#stage-by-stage)
@@ -43,6 +44,31 @@ content. VoiceOver support is a first-class concern throughout.
 3. **Explore** — Results are drawn back onto the photo as color-coded, tappable
    regions. Tap a text block to read it one sentence per card; tap a QR code to
    fetch, extract, and summarize the linked website — formatted for VoiceOver.
+
+---
+
+## Presentation
+
+A walkthrough of the project. 📥 **[Download the full deck (`Presentation.pptx`)](Presentation.pptx)**
+
+<table>
+  <tr>
+    <td width="50%"><img src="Slide1.png" alt="Slide 1" width="100%"></td>
+    <td width="50%"><img src="Slide2.png" alt="Slide 2" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="Slide3.png" alt="Slide 3" width="100%"></td>
+    <td width="50%"><img src="Slide4.png" alt="Slide 4" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="Slide5.png" alt="Slide 5" width="100%"></td>
+    <td width="50%"><img src="Slide6.png" alt="Slide 6" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="Slide7.png" alt="Slide 7" width="100%"></td>
+    <td width="50%"><img src="Slide8.png" alt="Slide 8" width="100%"></td>
+  </tr>
+</table>
 
 ---
 
